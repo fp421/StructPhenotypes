@@ -35,9 +35,13 @@ class AlphaFoldRetriever:
         uniprot_id = self.get_uniprot_id()
         if uniprot_id is None:
             raise ValueError(f"Could not find a UniProt ID for gene '{self.gene}'")
+<<<<<<< HEAD
         if output_path is None:
             output_path = alphafold_pdb_path(self.gene, uniprot_id, version=version)
         return download_alphafold_pdb(uniprot_id, output_path=output_path, version=version)
+=======
+        return download_alphafold_pdb(uniprot_id, gene_name=self.gene, output_path=output_path, version=version)
+>>>>>>> 0edc505 (add scn1a and scn8a pdb files)
 
     def get_alpha_fold_data(self, output_path: Optional[str | Path] = None, version: int = 6) -> dict[str, Any]:
         """Return local-first AlphaFold PDB metadata for this gene."""
@@ -96,12 +100,13 @@ def get_uniprot_id(gene_name: str, organism_id: int = 9606, canonical_only: bool
 
 def download_alphafold_pdb(
     uniprot_id: str,
+    gene_name: str,
     output_path: Optional[str | Path] = None,
     version: int = 6,
 ) -> Path:
     """Download an AlphaFold PDB file for a UniProt accession."""
     if output_path is None:
-        output_path = Path(f"AF-{uniprot_id}-F1-model_v{version}.pdb")
+        output_path = Path(f"data/alphafold/{gene_name}/AF-{uniprot_id}-F1-model_v{version}.pdb")
     else:
         output_path = Path(output_path)
 
