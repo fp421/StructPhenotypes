@@ -99,10 +99,6 @@ def download_alphamissense_predictions(uniprot_info: dict, output_file: Optional
             # If no variants found, return metadata only
             df = pd.DataFrame([protein_info])
 
-        if output_file:
-            df.to_csv(output_file, index=False)
-            print(f"Saved {len(df)} records to {output_file}")
-
         return df
 
     except Exception as e:
@@ -115,7 +111,7 @@ def load_alphamissense_from_file(filepath: str, uniprot_id: str) -> list:
     Load and filter AlphaMissense predictions from a local TSV file.
 
     Expected format (can be gzipped):
-        #CHROM  POS     REF     ALT     protein_variant am_pathogenicity am_class
+        uniprot_id  protein_variant  am_pathogenicity  am_class
     """
     import gzip
 
@@ -128,22 +124,29 @@ def load_alphamissense_from_file(filepath: str, uniprot_id: str) -> list:
                 if line.startswith('#'):
                     continue
                 parts = line.strip().split('\t')
-                if len(parts) >= 5:
-                    protein_var = parts[4]
-                    if uniprot_id in protein_var:
+                if len(parts) >= 4:
+                    uid = parts[0]
+                    if uid == uniprot_id:
                         try:
+                            protein_var = parts[1]
+                            # Extract position from variant (e.g., "M1A" -> position 1)
+                            import re
+                            match = re.search(r'(\d+)', protein_var)
+                            pos = int(match.group(1)) if match else None
+
                             variants.append({
-                                'chrom': parts[0],
-                                'pos': int(parts[1]),
-                                'ref': parts[2],
-                                'alt': parts[3],
+                                'uniprot_id': uid,
                                 'protein_variant': protein_var,
-                                'am_pathogenicity': float(parts[5]) if len(parts) > 5 else None,
-                                'am_class': parts[6] if len(parts) > 6 else None
+                                'position': pos,
+                                'am_pathogenicity': float(parts[2]) if len(parts) > 2 else None,
+                                'am_class': parts[3] if len(parts) > 3 else None
                             })
                         except (ValueError, IndexError):
                             continue
-        print(f"Loaded {len(variants)} variant predictions for {uniprot_id}")
+        if variants:
+            print(f"Loaded {len(variants)} variant predictions for {uniprot_id}")
+        else:
+            print(f"No variants found for {uniprot_id} in AlphaMissense data")
     except Exception as e:
         print(f"Error loading AlphaMissense file: {e}", file=sys.stderr)
 
@@ -165,7 +168,7 @@ def fetch_alphamissense_variants(uniprot_id: str) -> list:
     print(f"Fetching AlphaMissense predictions for {uniprot_id}...")
 
     # Check if cached file exists locally
-    cache_path = Path("data/alphamissense/human_proteome_missense_scores.tsv.gz")
+    cache_path = Path("data/alphamissense/AlphaMissense_aa_substitutions.tsv.gz")
     if cache_path.exists():
         print(f"Using cached AlphaMissense file: {cache_path}")
         return load_alphamissense_from_file(str(cache_path), uniprot_id)
@@ -185,7 +188,7 @@ def fetch_alphamissense_variants(uniprot_id: str) -> list:
             try:
                 cmd = [
                     "gsutil", "-m", "cp",
-                    "gs://dm_alphamissense/human_proteome_missense_scores.tsv.gz",
+                    "gs://dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz",
                     str(tmp_file)
                 ]
                 result = subprocess.run(cmd, capture_output=True, timeout=600)
@@ -198,18 +201,49 @@ def fetch_alphamissense_variants(uniprot_id: str) -> list:
 
     # If no gsutil, provide instructions
     print(f"\n⚠️  AlphaMissense data not found. To fetch predictions for {uniprot_id}:")
-    print("\nOption 1: Install Google Cloud SDK (recommended)")
-    print("  1. brew install google-cloud-sdk  # or follow: https://cloud.google.com/sdk/docs/install")
-    print("  2. gcloud auth application-default login")
-    print("  3. gsutil cp gs://dm_alphamissense/human_proteome_missense_scores.tsv.gz data/alphamissense/")
-    print("  4. Re-run this script\n")
+    print("\nOption 1: Download using gsutil (recommended, faster)")
+    print("  gsutil -m cp gs://dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz data/alphamissense/")
+    print("  Then re-run this script\n")
     print("Option 2: Manual download")
     print("  1. Visit: https://console.cloud.google.com/storage/browser/dm_alphamissense")
-    print("  2. Download: human_proteome_missense_scores.tsv.gz")
+    print("  2. Download: AlphaMissense_aa_substitutions.tsv.gz")
     print("  3. Place in: data/alphamissense/")
     print("  4. Re-run this script\n")
 
     return variants
+
+
+def aggregate_by_position(df: pd.DataFrame, output_file: Optional[str] = None) -> pd.DataFrame:
+    """
+    Calculate mean pathogenicity score per amino acid position.
+
+    Groups all variants at each position and computes average pathogenicity.
+    Useful for 3D structure visualization.
+    """
+    if df.empty or 'position' not in df.columns:
+        return df
+
+    # Group by position and calculate mean pathogenicity
+    aggregated = df.groupby('position').agg({
+        'am_pathogenicity': ['mean', 'min', 'max', 'std', 'count'],
+        'uniprot_id': 'first',
+    }).reset_index()
+
+    # Flatten column names
+    aggregated.columns = ['position', 'mean_pathogenicity', 'min_pathogenicity',
+                          'max_pathogenicity', 'std_pathogenicity', 'num_variants',
+                          'uniprot_id']
+
+    # Determine class based on mean score
+    aggregated['mean_class'] = aggregated['mean_pathogenicity'].apply(
+        lambda x: 'pathogenic' if x > 0.75 else ('benign' if x < 0.25 else 'ambiguous')
+    )
+
+    if output_file:
+        aggregated.to_csv(output_file, index=False)
+        print(f"Saved aggregated predictions to {output_file}")
+
+    return aggregated
 
 
 def main():
@@ -227,6 +261,11 @@ def main():
     parser.add_argument(
         "-u", "--uniprot-id",
         help="UniProt ID (if known, skip gene lookup)"
+    )
+    parser.add_argument(
+        "--variants",
+        action="store_true",
+        help="Output all variants (default is mean pathogenicity per position)"
     )
 
     args = parser.parse_args()
@@ -262,10 +301,21 @@ def main():
 
     # Download predictions
     print(f"Downloading AlphaMissense predictions for {uniprot_id}...")
-    df = download_alphamissense_predictions(uniprot_info, str(output_file))
+    df = download_alphamissense_predictions(uniprot_info, None)
 
     if not df.empty:
-        print(f"\nSuccessfully retrieved data for {uniprot_id}")
+        # Default: aggregate by position
+        if not args.variants:
+            agg_output = str(output_file) if args.output else (
+                Path("data/alphamissense") / f"{args.gene_name}_mean_pathogenicity.csv"
+            )
+            df = aggregate_by_position(df, agg_output)
+            print(f"Aggregated to {len(df)} positions")
+        else:
+            # Save the full variant data
+            df.to_csv(output_file, index=False)
+            print(f"Saved {len(df)} variant records to {output_file}")
+
         print(f"Shape: {df.shape}")
         print("\nFirst few rows:")
         print(df.head())
