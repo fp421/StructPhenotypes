@@ -25,6 +25,25 @@ except ImportError:
     from visualize import visualize
 
 try:
+    from .paths import (
+        alphafold_dir,
+        alphamissense_mean_path,
+        annotations_json_path,
+        clinvar_json_path,
+        normalize_gene,
+        report_json_path,
+    )
+except ImportError:
+    from paths import (
+        alphafold_dir,
+        alphamissense_mean_path,
+        annotations_json_path,
+        clinvar_json_path,
+        normalize_gene,
+        report_json_path,
+    )
+
+try:
     from .get_alphamissense import AlphaMissenseRetriever
 except ImportError:
     try:
@@ -51,9 +70,9 @@ def _retrieve_source(source_name: str, retrieve: Callable[[], Any]) -> dict[str,
 
 def build_report(gene: str, viewer_path: Path | None = None) -> dict[str, Any]:
     """Build one combined report for a gene symbol."""
-    gene = gene.strip()
+    gene = normalize_gene(gene)
 
-    clinvar = _retrieve_source("ClinVar", lambda: ClinVarRetriever(gene).get_clinvar_data())
+    clinvar = _retrieve_source("ClinVar", lambda: _get_clinvar_data(gene))
 
     alpha_fold = _retrieve_source("AlphaFold", lambda: AlphaFoldRetriever(gene).get_alpha_fold_data())
 
@@ -64,12 +83,31 @@ def build_report(gene: str, viewer_path: Path | None = None) -> dict[str, Any]:
         "clinvar": clinvar,
         "alpha_fold": alpha_fold,
         "alpha_missense": alpha_missense,
+        "cache_paths": {
+            "clinvar": str(clinvar_json_path(gene)),
+            "annotations": str(annotations_json_path(gene)),
+            "alphafold": str(alphafold_dir(gene)),
+            "alphamissense": str(alphamissense_mean_path(gene)),
+            "report": str(report_json_path(gene)),
+        },
     }
     report["visualization"] = _retrieve_source(
         "Visualization",
-        lambda: visualize(report, viewer_path),
+        lambda: visualize(report, viewer_path, annotations_json_path(gene)),
     )
     return report
+
+
+def _get_clinvar_data(gene: str) -> dict[str, Any]:
+    """Load cached ClinVar data or fetch and cache it."""
+    path = clinvar_json_path(gene)
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    retriever = ClinVarRetriever(gene)
+    records = retriever.get_clinvar_data()
+    retriever.save_clinvar_data(path, data=records)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _get_alpha_missense_data(gene: str) -> Any:
@@ -83,9 +121,7 @@ def _get_alpha_missense_data(gene: str) -> Any:
 
 def default_viewer_path(gene: str) -> Path:
     """Return the default local viewer path for a gene."""
-    safe_gene = "".join(char if char.isalnum() or char in "-_" else "_" for char in gene.strip())
-    safe_gene = safe_gene or "protein"
-    return Path("outputs") / f"{safe_gene.lower()}_viewer.html"
+    return Path("outputs") / normalize_gene(gene) / "viewer.html"
 
 
 def open_viewer(report: dict[str, Any]) -> None:

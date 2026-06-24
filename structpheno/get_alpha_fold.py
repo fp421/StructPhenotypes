@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any, Optional
 import requests
 
+try:
+    from .paths import alphafold_pdb_path, find_alphafold_pdb, normalize_gene
+except ImportError:
+    from paths import alphafold_pdb_path, find_alphafold_pdb, normalize_gene
+
 ALPHAFOLD_PDB_TEMPLATE = "https://alphafold.ebi.ac.uk/files/AF-{uniprot_id}-F1-model_v{version}.pdb"
 
 
@@ -18,7 +23,7 @@ class AlphaFoldRetriever:
     """Retrieve AlphaFold PDB data for a gene."""
 
     def __init__(self, gene: str, organism_id: int = 9606):
-        self.gene = gene.strip()
+        self.gene = normalize_gene(gene)
         self.organism_id = organism_id
 
     def get_uniprot_id(self, canonical_only: bool = True) -> Optional[str]:
@@ -30,11 +35,30 @@ class AlphaFoldRetriever:
         uniprot_id = self.get_uniprot_id()
         if uniprot_id is None:
             raise ValueError(f"Could not find a UniProt ID for gene '{self.gene}'")
+        if output_path is None:
+            output_path = alphafold_pdb_path(self.gene, uniprot_id, version=version)
         return download_alphafold_pdb(uniprot_id, output_path=output_path, version=version)
 
-    def get_alpha_fold_data(self, output_path: Optional[str | Path] = None, version: int = 6) -> Path:
-        """Download the AlphaFold PDB file for this gene and return its path."""
-        return self.download_pdb(output_path=output_path, version=version)
+    def get_alpha_fold_data(self, output_path: Optional[str | Path] = None, version: int = 6) -> dict[str, Any]:
+        """Return local-first AlphaFold PDB metadata for this gene."""
+        local_path = Path(output_path) if output_path else find_alphafold_pdb(self.gene)
+        if local_path and local_path.exists():
+            return {
+                "gene": self.gene,
+                "pdb_path": str(local_path.resolve()),
+                "source": "local",
+                "downloaded": False,
+                "uniprot_id": _uniprot_from_alphafold_name(local_path.name),
+            }
+
+        pdb_path = self.download_pdb(output_path=output_path, version=version)
+        return {
+            "gene": self.gene,
+            "pdb_path": str(pdb_path.resolve()),
+            "source": "alphafold",
+            "downloaded": True,
+            "uniprot_id": _uniprot_from_alphafold_name(pdb_path.name),
+        }
 
 
 def get_uniprot_id(gene_name: str, organism_id: int = 9606, canonical_only: bool = True) -> Optional[str]:
@@ -77,7 +101,7 @@ def download_alphafold_pdb(
 ) -> Path:
     """Download an AlphaFold PDB file for a UniProt accession."""
     if output_path is None:
-        output_path = Path(f"data/alphafold/SCN2A/AF-{uniprot_id}-F1-model_v{version}.pdb")
+        output_path = Path(f"AF-{uniprot_id}-F1-model_v{version}.pdb")
     else:
         output_path = Path(output_path)
 
@@ -95,6 +119,14 @@ def download_alphafold_pdb(
     return output_path
 
 
+def _uniprot_from_alphafold_name(filename: str) -> str | None:
+    """Extract UniProt accession from an AlphaFold PDB filename."""
+    parts = filename.split("-")
+    if len(parts) >= 2 and parts[0] == "AF":
+        return parts[1]
+    return None
+
+
 
 
 
@@ -106,6 +138,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     retriever = AlphaFoldRetriever(args.gene)
-    pdb_path = retriever.download_pdb(output_path=args.out)
+    data = retriever.get_alpha_fold_data(output_path=args.out)
 
-    print(f"Downloaded AlphaFold PDB for {args.gene} to {pdb_path}")
+    print(f"AlphaFold PDB for {args.gene}: {data['pdb_path']} ({data['source']})")

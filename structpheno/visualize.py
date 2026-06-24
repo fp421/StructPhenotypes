@@ -138,6 +138,8 @@ PHENOTYPE_PALETTE = [
 def visualize(
     report: dict[str, Any],
     output_path: str | Path | None = None,
+    annotation_path: str | Path | None = None,
+    use_cached_annotations: bool = True,
 ) -> dict[str, Any]:
     """Prepare or write a local 3Dmol.js viewer for a StructPhenotypes report.
 
@@ -150,9 +152,15 @@ def visualize(
     """
     gene = str(report.get("gene", "unknown"))
     resolved_path = Path(output_path) if output_path else None
-    annotation_path = _default_annotation_path(gene, resolved_path)
-    annotations = make_visualization_annotations(report)
-    save_visualization_annotations(annotations, annotation_path)
+    resolved_annotation_path = (
+        Path(annotation_path) if annotation_path else _default_annotation_path(gene, resolved_path)
+    )
+    annotations, annotation_source = _load_or_make_annotations(
+        report,
+        resolved_annotation_path,
+        use_cached=use_cached_annotations,
+    )
+    pdb_text, structure_source = _pdb_text_for_report(report)
 
     metadata: dict[str, Any] = {
         "status": "stub ready",
@@ -160,11 +168,12 @@ def visualize(
         "gene": gene,
         "html_path": str(resolved_path) if resolved_path else None,
         "html_written": False,
-        "annotation_path": str(annotation_path.resolve()),
-        "annotation_written": True,
+        "annotation_path": str(resolved_annotation_path.resolve()),
+        "annotation_source": annotation_source,
         "annotation_residue_count": annotations["residue_count"],
         "annotation_record_count": annotations["record_count"],
-        "example_structure": True,
+        "structure_source": structure_source,
+        "example_structure": structure_source == "example",
         "data_sources": {
             "clinvar": _source_has_data(report, "clinvar"),
             "alpha_fold": _source_has_data(report, "alpha_fold"),
@@ -181,7 +190,7 @@ def visualize(
 
     if resolved_path:
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_path.write_text(_render_html(report, annotations), encoding="utf-8")
+        resolved_path.write_text(_render_html(report, annotations, pdb_text), encoding="utf-8")
         metadata["html_path"] = str(resolved_path.resolve())
         metadata["html_written"] = True
 
@@ -195,7 +204,7 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
     records_by_residue = _group_records_by_residue(records)
     phenotype_counts = _count_phenotypes(records)
     phenotype_colors = _assign_phenotype_colors(phenotype_counts)
-    missense_by_residue = _build_missense_gradient(records_by_residue, report)
+    missense_by_residue, missense_source = _build_missense_gradient(records_by_residue, report)
 
     residues: dict[str, dict[str, Any]] = {}
     residue_list: list[dict[str, Any]] = []
@@ -222,7 +231,7 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
         "residues": residues,
         "residue_list": residue_list,
         "missense_predictions": {
-            "source": "stub_linear_by_residue_position",
+            "source": missense_source,
             "score_range": [0.0, 1.0],
             "by_residue": missense_by_residue,
         },
@@ -255,12 +264,59 @@ def preprocess_clinvar_json_file(
     return annotations
 
 
-def _render_html(report: dict[str, Any], annotations: dict[str, Any]) -> str:
+def _load_or_make_annotations(
+    report: dict[str, Any],
+    annotation_path: Path,
+    *,
+    use_cached: bool,
+) -> tuple[dict[str, Any], str]:
+    """Load cached annotations when present, otherwise preprocess and save."""
+    if use_cached and annotation_path.exists():
+        annotations = json.loads(annotation_path.read_text(encoding="utf-8"))
+        if _annotation_cache_is_usable(annotations, report):
+            return annotations, "local"
+
+    annotations = make_visualization_annotations(report)
+    save_visualization_annotations(annotations, annotation_path)
+    return annotations, "generated"
+
+
+def _annotation_cache_is_usable(annotations: dict[str, Any], report: dict[str, Any]) -> bool:
+    """Return whether cached annotations match the current report requirements."""
+    expected_gene = str(report.get("gene", "unknown")).upper()
+    cached_gene = str(annotations.get("gene", "unknown")).upper()
+    if cached_gene != expected_gene:
+        return False
+
+    if _source_has_data(report, "alpha_missense"):
+        missense = annotations.get("missense_predictions", {})
+        return missense.get("source") == "alphamissense"
+
+    return True
+
+
+def _pdb_text_for_report(report: dict[str, Any]) -> tuple[str, str]:
+    """Return PDB text from AlphaFold metadata or the embedded example."""
+    alpha_fold = report.get("alpha_fold", {})
+    if isinstance(alpha_fold, dict):
+        data = alpha_fold.get("data", {})
+        if isinstance(data, dict):
+            pdb_path = data.get("pdb_path")
+            if pdb_path:
+                path = Path(pdb_path)
+                if path.exists():
+                    return path.read_text(encoding="utf-8", errors="replace"), "alphafold"
+
+    return EXAMPLE_PDB, "example"
+
+
+def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: str) -> str:
     """Render a standalone HTML viewer around example protein data."""
     gene = str(report.get("gene", "unknown"))
+    structure_label = "AlphaFold PDB structure" if pdb_text != EXAMPLE_PDB else "embedded example protein structure"
     report_json = _safe_json(report)
     preprocessed_json = _safe_json(annotations)
-    pdb_json = _safe_json(EXAMPLE_PDB)
+    pdb_json = _safe_json(pdb_text)
     annotations_json = _safe_json(EXAMPLE_ANNOTATIONS)
 
     return f"""<!doctype html>
@@ -391,7 +447,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any]) -> str:
 <body>
   <header>
     <h1>StructPhenotypes Viewer: {escape(gene)}</h1>
-    <p class="subtitle">Local HTML prototype using 3Dmol.js and an embedded example protein structure.</p>
+    <p class="subtitle">Local HTML prototype using 3Dmol.js and {escape(structure_label)}.</p>
   </header>
 
   <div class="toolbar">
@@ -421,7 +477,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any]) -> str:
   <section class="details">
     <div class="panel">
       <h2>Current Prototype</h2>
-      <p>This page uses a small embedded example protein. Once AlphaFold retrieval is implemented, this same viewer can load the real PDB or mmCIF coordinates.</p>
+      <p>This page uses preprocessed residue annotations and the best available local structure file.</p>
     </div>
     <div class="panel">
       <h2>Variant Layers</h2>
@@ -460,14 +516,15 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any]) -> str:
 
     function populateControls() {{
       const phenotypeSelect = document.getElementById("phenotypeFilter");
-      const phenotypes = [...new Set(ANNOTATIONS.clinvar_variants.map((variant) => variant.phenotype))];
+      const phenotypes = Object.keys(PREPROCESSED_ANNOTATIONS.phenotype_counts || {{}}).sort();
       phenotypeSelect.innerHTML = '<option value="all">All phenotypes</option>' +
         phenotypes.map((phenotype) => `<option value="${{escapeAttr(phenotype)}}">${{phenotype}}</option>`).join("");
 
       const residueSelect = document.getElementById("focusResidue");
+      const residues = getResidueAnnotations();
       residueSelect.innerHTML = '<option value="">No residue focus</option>' +
-        ANNOTATIONS.clinvar_variants
-          .map((variant) => `<option value="${{variant.residue}}">Residue ${{variant.residue}}: ${{variant.significance}}</option>`)
+        residues
+          .map((annotation) => `<option value="${{annotation.residue}}">Residue ${{annotation.residue}}: ${{annotation.primary_significance || "annotated"}}</option>`)
           .join("");
 
       document.getElementById("colorMode").addEventListener("change", applyStyle);
@@ -476,10 +533,33 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any]) -> str:
       document.getElementById("resetView").addEventListener("click", resetView);
     }}
 
+    function getResidueAnnotations() {{
+      const residues = PREPROCESSED_ANNOTATIONS.residue_list || [];
+      if (residues.length > 0) {{
+        return residues;
+      }}
+
+      return ANNOTATIONS.clinvar_variants.map((variant) => ({{
+        residue: variant.residue,
+        variant_count: 1,
+        phenotypes: [variant.phenotype],
+        primary_phenotype: variant.phenotype,
+        phenotype_color: variant.color,
+        primary_significance: variant.significance,
+        has_pathogenic: true,
+        max_pathogenicity: 4,
+        pathogenic_color: significanceColor(variant.significance),
+        missense: null,
+      }}));
+    }}
+
     function populateVariantList() {{
       const list = document.getElementById("variantList");
-      list.innerHTML = ANNOTATIONS.clinvar_variants
-        .map((variant) => `<li>Residue ${{variant.residue}} (${{variant.amino_acid}}): ${{variant.significance}}, ${{variant.phenotype}}</li>`)
+      const residues = getResidueAnnotations();
+      const highlighted = residues.filter((annotation) => annotation.has_pathogenic).slice(0, 100);
+      const displayed = highlighted.length > 0 ? highlighted : residues.slice(0, 100);
+      list.innerHTML = displayed
+        .map((annotation) => `<li>Residue ${{annotation.residue}}: ${{annotation.primary_significance || "annotated"}}, ${{annotation.primary_phenotype || "no phenotype"}} (${{annotation.variant_count}} variants)</li>`)
         .join("");
     }}
 
@@ -511,23 +591,29 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any]) -> str:
     }}
 
     function colorClinVarPhenotypes(phenotype) {{
-      ANNOTATIONS.clinvar_variants.forEach((variant) => {{
-        if (phenotype !== "all" && variant.phenotype !== phenotype) {{
+      getResidueAnnotations().forEach((annotation) => {{
+        if (phenotype !== "all" && !annotation.phenotypes.includes(phenotype)) {{
           return;
         }}
-        setResidueStyle(variant.residue, variant.color, 0.2);
+        setResidueStyle(annotation.residue, annotation.phenotype_color || "#9ca3af", 0.2);
       }});
     }}
 
     function colorClinVarSignificance() {{
-      ANNOTATIONS.clinvar_variants.forEach((variant) => {{
-        setResidueStyle(variant.residue, significanceColor(variant.significance), 0.2);
+      getResidueAnnotations().forEach((annotation) => {{
+        if (annotation.max_pathogenicity <= 0) {{
+          return;
+        }}
+        setResidueStyle(annotation.residue, annotation.pathogenic_color || "#999999", 0.2);
       }});
     }}
 
     function colorMissenseGradient() {{
-      ANNOTATIONS.missense_predictions.forEach((prediction) => {{
-        setResidueStyle(prediction.residue, scoreToColor(prediction.score), 0.12);
+      getResidueAnnotations().forEach((annotation) => {{
+        if (!annotation.missense) {{
+          return;
+        }}
+        setResidueStyle(annotation.residue, annotation.missense.color || scoreToColor(annotation.missense.score), 0.12);
       }});
     }}
 
@@ -780,14 +866,14 @@ def _pathogenicity_color(severity: int) -> str:
 def _build_missense_gradient(
     records_by_residue: dict[int, list[dict[str, Any]]],
     report: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], str]:
     real_predictions = _extract_missense_predictions(report)
     if real_predictions:
-        return real_predictions
+        return real_predictions, "alphamissense"
 
     residues = sorted(records_by_residue)
     if not residues:
-        return {}
+        return {}, "stub_linear_by_residue_position"
 
     minimum = residues[0]
     maximum = residues[-1]
@@ -800,7 +886,7 @@ def _build_missense_gradient(
             "color": _score_to_color((residue - minimum) / span),
         }
         for residue in residues
-    }
+    }, "stub_linear_by_residue_position"
 
 
 def _extract_missense_predictions(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -818,20 +904,31 @@ def _extract_missense_predictions(report: dict[str, Any]) -> dict[str, dict[str,
             continue
         residue = _coerce_residue(record.get("residue") or record.get("position"))
         score = _coerce_score(
-            record.get("score")
-            or record.get("am_pathogenicity")
-            or record.get("pathogenicity_score")
+            _first_present(
+                record,
+                "score",
+                "mean_pathogenicity",
+                "am_pathogenicity",
+                "pathogenicity_score",
+            )
         )
         if residue is None or score is None:
             continue
         predictions[str(residue)] = {
             "residue": residue,
             "score": score,
-            "class": record.get("am_class") or record.get("class"),
+            "class": record.get("am_class") or record.get("class") or record.get("mean_class"),
             "color": _score_to_color(score),
         }
 
     return predictions
+
+
+def _first_present(record: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in record and record[key] is not None:
+            return record[key]
+    return None
 
 
 def _score_to_color(score: float) -> str:
