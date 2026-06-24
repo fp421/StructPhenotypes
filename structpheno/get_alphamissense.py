@@ -213,6 +213,35 @@ def fetch_alphamissense_variants(uniprot_id: str) -> list:
     return variants
 
 
+def build_report(gene_name: str, df: pd.DataFrame) -> dict:
+    """
+    Build a report dictionary compatible with visualize.py.
+
+    Converts aggregated AlphaMissense data into the format expected by
+    the 3Dmol.js visualization script.
+    """
+    # Extract residue and score columns
+    if 'position' in df.columns and 'mean_pathogenicity' in df.columns:
+        missense_data = df[['position', 'mean_pathogenicity']].dropna()
+        predictions = [
+            {
+                "residue": int(row['position']),
+                "score": float(row['mean_pathogenicity'])
+            }
+            for _, row in missense_data.iterrows()
+        ]
+    else:
+        predictions = []
+
+    report = {
+        "gene": gene_name,
+        "alpha_missense": {
+            "data": predictions
+        }
+    }
+    return report
+
+
 def aggregate_by_position(df: pd.DataFrame, output_file: Optional[str] = None) -> pd.DataFrame:
     """
     Calculate mean pathogenicity score per amino acid position.
@@ -267,6 +296,11 @@ def main():
         action="store_true",
         help="Output all variants (default is mean pathogenicity per position)"
     )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="Output as JSON report format compatible with visualize.py"
+    )
 
     args = parser.parse_args()
 
@@ -304,21 +338,39 @@ def main():
     df = download_alphamissense_predictions(uniprot_info, None)
 
     if not df.empty:
-        # Default: aggregate by position
-        if not args.variants:
-            agg_output = str(output_file) if args.output else (
-                Path("data/alphamissense") / f"{args.gene_name}_mean_pathogenicity.csv"
-            )
-            df = aggregate_by_position(df, agg_output)
+        # Create gene-specific output directory
+        output_dir = Path(output_file).parent if args.output else (
+            Path("data/alphamissense") / args.gene_name.lower()
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Handle output format
+        if args.report:
+            # Aggregate first, then build report
+            agg_df = aggregate_by_position(df)
+            report = build_report(args.gene_name, agg_df)
+            report_output = output_dir / "report.json"
+            import json
+            report_output.write_text(json.dumps(report, indent=2))
+            print(f"Saved report to {report_output}")
+            print(f"Report format: Ready for visualize.py")
+            print(f"Positions: {len(agg_df)}")
+        elif not args.variants:
+            # Default: aggregate by position as CSV
+            agg_output = output_dir / "mean_pathogenicity.csv"
+            df = aggregate_by_position(df, str(agg_output))
             print(f"Aggregated to {len(df)} positions")
         else:
             # Save the full variant data
-            df.to_csv(output_file, index=False)
-            print(f"Saved {len(df)} variant records to {output_file}")
+            variants_output = output_dir / "variants.csv"
+            df.to_csv(variants_output, index=False)
+            print(f"Saved {len(df)} variant records to {variants_output}")
 
+        print(f"Output directory: {output_dir}")
         print(f"Shape: {df.shape}")
-        print("\nFirst few rows:")
-        print(df.head())
+        if not args.report:
+            print("\nFirst few rows:")
+            print(df.head())
     else:
         print(f"No predictions found for {uniprot_id}")
 
