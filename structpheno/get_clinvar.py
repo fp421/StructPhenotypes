@@ -13,6 +13,11 @@ from typing import Any
 import requests
 import tqdm
 
+try:
+    from .paths import clinvar_json_path
+except ImportError:
+    from paths import clinvar_json_path
+
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 THREE_TO_ONE_AA = {
@@ -358,7 +363,7 @@ class ClinVarRetriever:
 
 
 if __name__ == "__main__":
-    retriever = ClinVarRetriever("SCN2A")
+    retriever = ClinVarRetriever("SCN1A")
     if not retriever.email:
         print(
             "Tip: set NCBI_EMAIL=you@example.org to identify this tool to NCBI E-utilities.",
@@ -367,8 +372,8 @@ if __name__ == "__main__":
 
     data = retriever.get_clinvar_data(max_records=10_000)
     output_path = retriever.save_clinvar_data(
-        "data/clinvar/scn2a_clinvar.json",
+        "data/clinvar/scn1a_clinvar.json",
         data=data,
     )
-    print(f"Retrieved {len(data)} ClinVar records for SCN2A.")
+    print(f"Retrieved {len(data)} ClinVar records for SCN1A.")
     print(f"Saved ClinVar records to {output_path}.")

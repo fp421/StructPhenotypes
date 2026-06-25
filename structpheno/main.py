@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import webbrowser
 from pathlib import Path
 from typing import Any, Callable
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
 
 try:
     from .get_alpha_fold import AlphaFoldRetriever
@@ -23,6 +28,25 @@ try:
     from .visualize import visualize
 except ImportError:
     from visualize import visualize
+
+try:
+    from .paths import (
+        alphafold_dir,
+        alphamissense_mean_path,
+        annotations_json_path,
+        clinvar_json_path,
+        normalize_gene,
+        report_json_path,
+    )
+except ImportError:
+    from paths import (
+        alphafold_dir,
+        alphamissense_mean_path,
+        annotations_json_path,
+        clinvar_json_path,
+        normalize_gene,
+        report_json_path,
+    )
 
 try:
     from .get_alphamissense import AlphaMissenseRetriever
@@ -49,43 +73,151 @@ def _retrieve_source(source_name: str, retrieve: Callable[[], Any]) -> dict[str,
         }
 
 
-def build_report(gene: str, viewer_path: Path | None = None) -> dict[str, Any]:
+def build_report(
+    gene: str,
+    viewer_path: Path | None = None,
+    *,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
     """Build one combined report for a gene symbol."""
-    gene = gene.strip()
+    gene = normalize_gene(gene)
+    logger = logger or logging.getLogger(__name__)
+    steps = [
+        ("ClinVar", lambda: _get_clinvar_data(gene, logger)),
+        ("AlphaFold", lambda: AlphaFoldRetriever(gene).get_alpha_fold_data()),
+        ("AlphaMissense", lambda: _get_alpha_missense_data(gene, logger)),
+    ]
+    progress = tqdm(total=len(steps) + 1, desc=f"{gene} pipeline", unit="step") if tqdm else None
 
-    clinvar = _retrieve_source("ClinVar", lambda: ClinVarRetriever(gene).get_clinvar_data())
+    logger.info("Starting StructPhenotypes pipeline for %s", gene)
+    if progress:
+        progress.set_postfix_str("ClinVar")
+    clinvar = _retrieve_source("ClinVar", steps[0][1])
+    _log_source_result(logger, "ClinVar", clinvar)
+    if progress:
+        progress.update(1)
+        progress.set_postfix_str("AlphaFold")
 
-    alpha_fold = _retrieve_source("AlphaFold", lambda: AlphaFoldRetriever(gene).get_alpha_fold_data())
+    alpha_fold = _retrieve_source("AlphaFold", steps[1][1])
+    _log_source_result(logger, "AlphaFold", alpha_fold)
+    if progress:
+        progress.update(1)
+        progress.set_postfix_str("AlphaMissense")
 
-    alpha_missense = _retrieve_source("AlphaMissense", lambda: _get_alpha_missense_data(gene))
+    alpha_missense = _retrieve_source("AlphaMissense", steps[2][1])
+    _log_source_result(logger, "AlphaMissense", alpha_missense)
+    if progress:
+        progress.update(1)
+        progress.set_postfix_str("Visualization")
 
     report = {
         "gene": gene,
         "clinvar": clinvar,
         "alpha_fold": alpha_fold,
         "alpha_missense": alpha_missense,
+        "cache_paths": {
+            "clinvar": str(clinvar_json_path(gene)),
+            "annotations": str(annotations_json_path(gene)),
+            "alphafold": str(alphafold_dir(gene)),
+            "alphamissense": str(alphamissense_mean_path(gene)),
+            "report": str(report_json_path(gene)),
+        },
     }
     report["visualization"] = _retrieve_source(
         "Visualization",
-        lambda: visualize(report, viewer_path),
+        lambda: visualize(report, viewer_path, annotations_json_path(gene)),
     )
+    _log_source_result(logger, "Visualization", report["visualization"])
+    if progress:
+        progress.update(1)
+        progress.close()
+    logger.info("Finished pipeline for %s", gene)
     return report
 
 
-def _get_alpha_missense_data(gene: str) -> Any:
+def _get_clinvar_data(gene: str, logger: logging.Logger | None = None) -> dict[str, Any]:
+    """Load cached ClinVar data or fetch and cache it."""
+    logger = logger or logging.getLogger(__name__)
+    path = clinvar_json_path(gene)
+    if path.exists():
+        logger.info("Using cached ClinVar data from %s", path)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    logger.info("ClinVar cache miss for %s; fetching from ClinVar", gene)
+    retriever = ClinVarRetriever(gene)
+    records = retriever.get_clinvar_data()
+    retriever.save_clinvar_data(path, data=records)
+    logger.info("Saved ClinVar data to %s", path)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _get_alpha_missense_data(gene: str, logger: logging.Logger | None = None) -> Any:
     """Retrieve AlphaMissense data when the retriever class is available."""
+    logger = logger or logging.getLogger(__name__)
     if AlphaMissenseRetriever is None:
         raise NotImplementedError(
             "AlphaMissenseRetriever is not available in get_alphamissense.py yet."
         )
+    logger.info("Loading AlphaMissense data for %s", gene)
     return AlphaMissenseRetriever(gene).get_alpha_missense_data()
+
+
+def _source_record_count(payload: dict[str, Any]) -> int | None:
+    data = payload.get("data")
+    if isinstance(data, list):
+        return len(data)
+    if isinstance(data, dict):
+        if isinstance(data.get("records"), list):
+            return len(data["records"])
+        record_count = data.get("record_count")
+        if isinstance(record_count, int):
+            return record_count
+    return None
+
+
+def _log_source_result(logger: logging.Logger, source_name: str, payload: dict[str, Any]) -> None:
+    status = payload.get("status", "unknown")
+    if status == "ok":
+        record_count = _source_record_count(payload)
+        if record_count is None:
+            logger.info("%s complete", source_name)
+        else:
+            logger.info("%s complete (%s records)", source_name, record_count)
+    else:
+        logger.warning("%s failed: %s", source_name, payload.get("error"))
+
+
+def _configure_logging() -> logging.Logger:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(levelname)s] %(message)s",
+    )
+    return logging.getLogger("structpheno")
+
+
+def _print_report_summary(
+    report: dict[str, Any],
+    report_path: Path,
+    viewer_path: Path | None,
+) -> None:
+    print(f"Gene: {report['gene']}")
+    print(f"Report JSON: {report_path}")
+    if viewer_path:
+        print(f"Viewer HTML: {viewer_path}")
+    for source_name in ("clinvar", "alpha_fold", "alpha_missense", "visualization"):
+        payload = report.get(source_name, {})
+        if not isinstance(payload, dict):
+            continue
+        label = source_name.replace("_", " ").title()
+        status = payload.get("status", "unknown")
+        count = _source_record_count(payload)
+        suffix = f" ({count} records)" if count is not None else ""
+        print(f"- {label}: {status}{suffix}")
 
 
 def default_viewer_path(gene: str) -> Path:
     """Return the default local viewer path for a gene."""
-    safe_gene = "".join(char if char.isalnum() or char in "-_" else "_" for char in gene.strip())
-    safe_gene = safe_gene or "protein"
-    return Path("outputs") / f"{safe_gene.lower()}_viewer.html"
+    return Path("outputs") / normalize_gene(gene) / "viewer.html"
 
 
 def open_viewer(report: dict[str, Any]) -> None:
@@ -147,20 +279,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """Run the StructPhenotypes CLI."""
     args = parse_args(argv)
+    logger = _configure_logging()
     viewer_path = args.viewer or default_viewer_path(args.gene)
-    report = build_report(args.gene, viewer_path)
+    report = build_report(args.gene, viewer_path, logger=logger)
 
     if not args.no_open:
         open_viewer(report)
 
     json_indent = 2 if args.pretty else None
     json_text = json.dumps(report, indent=json_indent)
+    report_path = args.out or report_json_path(normalize_gene(args.gene))
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json_text + "\n", encoding="utf-8")
+    logger.info("Wrote report JSON to %s", report_path)
+    _print_report_summary(report, report_path, viewer_path)
 
-    if args.out:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json_text + "\n", encoding="utf-8")
-    else:
-        print(json_text)
+    alpha_fold_status = report.get("alpha_fold", {}).get("status")
+    visualization_status = report.get("visualization", {}).get("status")
+    if alpha_fold_status != "ok" or visualization_status != "ok":
+        logger.error("Pipeline failed: AlphaFold structure/viewer generation did not complete successfully.")
+        return 1
 
     return 0
 

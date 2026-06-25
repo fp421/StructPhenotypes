@@ -8,6 +8,70 @@ from pathlib import Path
 from typing import Optional
 import sys
 
+try:
+    from .paths import (
+        alphamissense_mean_path,
+        alphamissense_variants_path,
+        normalize_gene,
+    )
+except ImportError:
+    from paths import (
+        alphamissense_mean_path,
+        alphamissense_variants_path,
+        normalize_gene,
+    )
+
+
+class AlphaMissenseRetriever:
+    """Retrieve local-first AlphaMissense predictions for one gene."""
+
+    def __init__(self, gene: str, uniprot_id: str | None = None):
+        self.gene = normalize_gene(gene)
+        self.uniprot_id = uniprot_id
+
+    def get_alpha_missense_data(self) -> list[dict]:
+        """Return mean AlphaMissense pathogenicity by residue position."""
+        cached_mean = alphamissense_mean_path(self.gene)
+        if cached_mean.exists():
+            return _load_mean_pathogenicity_csv(cached_mean)
+
+        uniprot_info = self._get_uniprot_info()
+        if not uniprot_info:
+            return []
+
+        variants = download_alphamissense_predictions(uniprot_info, None)
+        if variants.empty:
+            return []
+
+        mean_path = alphamissense_mean_path(self.gene)
+        mean_path.parent.mkdir(parents=True, exist_ok=True)
+        aggregated = aggregate_by_position(variants, str(mean_path))
+        return aggregated.to_dict(orient="records")
+
+    def _get_uniprot_info(self) -> Optional[dict]:
+        if self.uniprot_id:
+            return {
+                "primary_accession": self.uniprot_id,
+                "isoform_id": self.uniprot_id,
+                "is_canonical": True,
+                "protein_name": "Unknown",
+                "organism": "Unknown",
+            }
+        return get_uniprot_id(self.gene, canonical_only=True)
+
+
+def _load_mean_pathogenicity_csv(path: str | Path) -> list[dict]:
+    """Load cached per-position mean AlphaMissense scores."""
+    df = pd.read_csv(path)
+    if "position" in df.columns and "residue" not in df.columns:
+        df["residue"] = df["position"]
+    if "mean_pathogenicity" in df.columns and "score" not in df.columns:
+        df["score"] = df["mean_pathogenicity"]
+    if "mean_class" in df.columns and "class" not in df.columns:
+        df["class"] = df["mean_class"]
+    df = df.astype(object).where(pd.notnull(df), None)
+    return df.to_dict(orient="records")
+
 
 def get_uniprot_id(gene_name: str, canonical_only: bool = True) -> Optional[dict]:
     """
@@ -329,39 +393,28 @@ def main():
     if args.output:
         output_file = args.output
     else:
-        output_dir = Path("data/alphamissense")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"{args.gene_name}_alphamissense.csv"
+        output_file = alphamissense_variants_path(args.gene_name)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Download predictions
     print(f"Downloading AlphaMissense predictions for {uniprot_id}...")
     df = download_alphamissense_predictions(uniprot_info, None)
 
     if not df.empty:
-        # Create gene-specific output directory
-        output_dir = Path(output_file).parent if args.output else (
-            Path("data/alphamissense") / args.gene_name.lower()
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Handle output format
-        if args.report:
-            # Aggregate first, then build report
-            agg_df = aggregate_by_position(df)
-            report = build_report(args.gene_name, agg_df)
-            report_output = output_dir / "report.json"
-            import json
-            report_output.write_text(json.dumps(report, indent=2))
-            print(f"Saved report to {report_output}")
-            print(f"Report format: Ready for visualize.py")
-            print(f"Positions: {len(agg_df)}")
-        elif not args.variants:
-            # Default: aggregate by position as CSV
-            agg_output = output_dir / "mean_pathogenicity.csv"
-            df = aggregate_by_position(df, str(agg_output))
+        # Default: aggregate by position
+        if not args.variants:
+            agg_output = str(output_file) if args.output else (
+                alphamissense_mean_path(args.gene_name)
+            )
+            df = aggregate_by_position(df, agg_output)
             print(f"Aggregated to {len(df)} positions")
+            output_dir = Path(agg_output).parent
         else:
             # Save the full variant data
+            output_dir = Path(output_file).parent if args.output else (
+                alphamissense_variants_path(args.gene_name).parent
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
             variants_output = output_dir / "variants.csv"
             df.to_csv(variants_output, index=False)
             print(f"Saved {len(df)} variant records to {variants_output}")
