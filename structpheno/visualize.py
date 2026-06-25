@@ -180,9 +180,12 @@ def visualize(
             "alpha_missense": _source_has_data(report, "alpha_missense"),
         },
         "controls": [
-            "Base color mode: gray protein, default, AlphaMissense gradient/class, AlphaFold confidence, ClinVar pathogenicity",
+            "Base color mode: gray protein, default, AlphaMissense gradient/class, AlphaFold confidence, ClinVar pathogenicity, ClinVar/AlphaMissense surprise, disease contact network",
             "Rendering style: cartoon, trace, tube, cartoon plus sticks, sticks, lines, sphere/spacefill, cross, VDW/MS/SAS/SES surfaces, plus a smoother SAS-based surface option",
-            "Phenotype checkbox overlay with per-phenotype color pickers",
+            "Phenotype checkbox overlay with per-phenotype color pickers and hidden pathogenicity override menus",
+            "Global pathogenicity display/filter mode inherited by phenotype overlays",
+            "Contact cutoff slider for distance-based disease neighborhoods",
+            "Disease residue summary statistics",
             "Dynamic color legend",
             "Residue focus with 30 percent opacity for the rest of the protein",
         ],
@@ -314,7 +317,7 @@ def _annotation_cache_is_usable(annotations: dict[str, Any], report: dict[str, A
 
 
 def _pdb_text_for_report(report: dict[str, Any]) -> tuple[str, str]:
-    """Return PDB text from AlphaFold metadata or raise if unavailable."""
+    """Return PDB text from AlphaFold metadata or an embedded demo structure."""
     alpha_fold = report.get("alpha_fold", {})
     if isinstance(alpha_fold, dict):
         data = alpha_fold.get("data", {})
@@ -326,7 +329,7 @@ def _pdb_text_for_report(report: dict[str, Any]) -> tuple[str, str]:
                     return path.read_text(encoding="utf-8", errors="replace"), "alphafold"
                 raise FileNotFoundError(f"AlphaFold PDB path does not exist: {path}")
 
-    raise FileNotFoundError("AlphaFold structure is required for visualization but no PDB file was found.")
+    return EXAMPLE_PDB, "example"
 
 
 def _extract_alphafold_confidence(report: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], str]:
@@ -830,22 +833,41 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
     #viewer {
       width: 100%;
-      height: 66vh;
+      height: calc(100vh - 176px);
       min-height: 430px;
       position: relative;
     }
     #status {
-      padding: 10px 22px;
+      padding: 10px 12px;
       color: var(--muted);
       border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border);
       font-size: 14px;
     }
-    .details {
+    .workspace {
       display: grid;
-      grid-template-columns: minmax(260px, 360px) 1fr;
+      grid-template-columns: minmax(0, 2fr) minmax(260px, 0.55fr) minmax(320px, 1fr);
       gap: 14px;
       padding: 16px 22px 24px;
+      align-items: start;
+    }
+    .viewer-pane,
+    .legend-pane,
+    .control-pane {
+      min-width: 0;
+    }
+    .legend-pane {
+      position: sticky;
+      top: 12px;
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 0 12px;
+    }
+    .control-pane {
+      display: grid;
+      gap: 14px;
     }
     .panel {
       border: 1px solid var(--border);
@@ -864,7 +886,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       line-height: 1.4;
     }
     .phenotype-panel {
-      max-height: 260px;
+      max-height: calc(100vh - 310px);
       overflow: auto;
       display: grid;
       gap: 7px;
@@ -872,11 +894,14 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
     .phenotype-row {
       display: grid;
-      grid-template-columns: 22px 42px 1fr auto;
+      grid-template-columns: 22px 42px minmax(0, 1fr) auto;
       gap: 8px;
       align-items: center;
       border-bottom: 1px solid #edf1f7;
       padding: 4px 0;
+    }
+    .phenotype-row.has-options {
+      grid-template-columns: 22px 42px minmax(0, 1fr) auto 28px;
     }
     .phenotype-row input[type="checkbox"] {
       width: 16px;
@@ -896,6 +921,77 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       color: var(--muted);
       font-size: 12px;
     }
+      .phenotype-options {
+        grid-column: 3 / -1;
+        display: none;
+        gap: 6px;
+        padding: 2px 0 5px;
+      }
+      .phenotype-options.is-visible {
+        display: grid;
+      }
+      .pathogenicity-row {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr) 40px auto;
+        gap: 7px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .pathogenicity-toggle {
+        grid-template-columns: 20px 1fr;
+        padding-bottom: 4px;
+        border-bottom: 1px solid #edf1f7;
+        margin-bottom: 4px;
+      }
+      .pathogenicity-row input[type="checkbox"] {
+        width: 15px;
+        height: 15px;
+      }
+      .pathogenicity-row input[type="color"] {
+        width: 38px;
+        min-width: 38px;
+        height: 30px;
+        padding: 2px;
+      }
+      .pathogenicity-count {
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .small-button {
+        height: 28px;
+        min-width: 28px;
+        padding: 0;
+        border-radius: 6px;
+        background: #ffffff;
+        border-color: var(--border);
+        color: var(--muted);
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 8px;
+        margin: 8px 0 14px;
+      }
+      .stat {
+        border: 1px solid #edf1f7;
+        border-radius: 6px;
+        padding: 8px;
+      }
+      .stat strong {
+        display: block;
+        color: var(--ink);
+        font-size: 18px;
+      }
+      .stat span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .mini-list {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -952,8 +1048,18 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         align-items: center;
       }
       @media (max-width: 800px) {
-        .details {
+        .workspace {
           grid-template-columns: 1fr;
+        }
+        .legend-pane {
+          position: static;
+          max-height: none;
+          border-left: 0;
+          border-right: 0;
+          padding: 0;
+        }
+        #viewer {
+          height: 58vh;
         }
       }
   </style>
@@ -974,6 +1080,8 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         <option value="missense-class">AlphaMissense class</option>
         <option value="alphafold-confidence">AlphaFold confidence</option>
         <option value="clinvar-pathogenicity">ClinVar pathogenicity</option>
+        <option value="surprise">Surprise: ClinVar vs AlphaMissense</option>
+        <option value="contact-network">Disease contact network</option>
       </select>
     </label>
     <label>
@@ -1011,23 +1119,43 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         </div>
         <span id="markerScaleValue" class="slider-value">1.6x</span>
       </label>
+      <label>
+        Contact cutoff
+        <div class="inline-field">
+          <input id="contactCutoff" type="range" min="4" max="12" step="0.5" value="8.0">
+          <input id="contactCutoffText" type="text" value="8.0 A" inputmode="decimal" aria-label="Contact cutoff value">
+        </div>
+        <span id="contactCutoffValue" class="slider-value">8.0 A</span>
+      </label>
       <button id="resetView" type="button">Reset view</button>
     </div>
 
-  <div id="viewer"></div>
-  <div id="status">Loading viewer...</div>
-
-  <section class="details">
-    <div class="panel">
-      <h2>Phenotype Sets</h2>
-        <p>Tick phenotypes to overlay colored residue markers on top of the current scaffold coloring.</p>
-      <div id="phenotypeControls" class="phenotype-panel"></div>
+  <section class="workspace">
+    <div class="viewer-pane">
+      <div id="viewer"></div>
+      <div id="status">Loading viewer...</div>
     </div>
-    <div class="panel">
-      <h2>Legend</h2>
+    <aside class="legend-pane">
+      <h2>Color Scale</h2>
       <div id="colorLegend"></div>
-      <h2>Residue Summary</h2>
-      <ul id="variantList"></ul>
+    </aside>
+    <div class="control-pane">
+      <div class="panel">
+        <h2>Global Pathogenicity</h2>
+        <p>These classes are inherited by phenotype overlays unless you override a class inside a phenotype.</p>
+        <div id="globalPathogenicityControls" class="phenotype-panel"></div>
+      </div>
+      <div class="panel">
+        <h2>Phenotype Sets</h2>
+        <p>Tick phenotypes, then open their pathogenicity options to show multiple classes at once with separate colors.</p>
+        <div id="phenotypeControls" class="phenotype-panel"></div>
+      </div>
+      <div class="panel">
+        <h2>Disease Residue Stats</h2>
+        <div id="diseaseStats"></div>
+        <h2>Residue Summary</h2>
+        <ul id="variantList"></ul>
+      </div>
     </div>
   </section>
 
@@ -1049,11 +1177,21 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       "surface-sas": "SAS",
       "surface-ses": "SES",
     };
-    const PHENOTYPE_LIMIT = 80;
+      const PATHOGENICITY_CLASSES = [
+        { key: "pathogenic", label: "Pathogenic", color: "#b2182b" },
+        { key: "likely-pathogenic", label: "Likely pathogenic", color: "#ef8a62" },
+        { key: "uncertain", label: "Uncertain/conflicting", color: "#fddbc7" },
+        { key: "benign", label: "Benign/likely benign", color: "#d1e5f0" },
+      ];
+      const PHENOTYPE_LIMIT = 80;
+      const CONTACT_NEIGHBORHOOD_LIMIT = 8;
+      const CONTACT_CLUSTER_MIN_SIZE = 3;
 
       let viewer = null;
       let model = null;
       let phenotypeEntries = [];
+      let residueCenterCache = new Map();
+      let contactNetworkLabels = [];
       let currentFocusResidue = null;
       let currentSceneKey = null;
 
@@ -1076,10 +1214,13 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
 
       function populateControls() {
+        populateGlobalPathogenicityControls();
         populatePhenotypeControls();
         populateResidueFocus();
+        populateDiseaseStats();
         updateBackgroundOpacityLabel();
         updateMarkerScaleLabel();
+        updateContactCutoffLabel();
 
         document.getElementById("baseColorMode").addEventListener("change", () => applyStyle(false));
         document.getElementById("renderStyle").addEventListener("change", () => applyStyle(false));
@@ -1096,11 +1237,38 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           syncMarkerScaleFromText();
           applyStyle(false);
         });
+        document.getElementById("contactCutoff").addEventListener("input", () => {
+          updateContactCutoffLabel();
+          applyStyle(false);
+        });
+        document.getElementById("contactCutoffText").addEventListener("change", () => {
+          syncContactCutoffFromText();
+          applyStyle(false);
+        });
         document.getElementById("resetView").addEventListener("click", resetView);
       }
 
-    function populatePhenotypeControls() {
-      const panel = document.getElementById("phenotypeControls");
+      function populateGlobalPathogenicityControls() {
+        const panel = document.getElementById("globalPathogenicityControls");
+        if (!panel) {
+          return;
+        }
+        panel.innerHTML = PATHOGENICITY_CLASSES.map((pathClass) => `
+          <label class="pathogenicity-row">
+            <input class="global-pathogenicity-check" type="checkbox" data-class="${pathClass.key}" checked>
+            <span>${escapeHtml(pathClass.label)}</span>
+            <input class="global-pathogenicity-color" type="color" data-class="${pathClass.key}" value="${pathClass.color}" aria-label="${escapeHtml(pathClass.label)} color">
+            <span class="pathogenicity-count">${pathogenicityClassResidueCount(pathClass.key)} residues</span>
+          </label>
+        `).join("");
+
+        panel.querySelectorAll("input").forEach((input) => {
+          input.addEventListener("change", handleGlobalPathogenicityChange);
+        });
+      }
+
+      function populatePhenotypeControls() {
+        const panel = document.getElementById("phenotypeControls");
       const counts = PREPROCESSED_ANNOTATIONS.phenotype_counts || {};
       const colors = PREPROCESSED_ANNOTATIONS.phenotype_colors || {};
       phenotypeEntries = Object.entries(counts)
@@ -1118,17 +1286,64 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
 
         panel.innerHTML = phenotypeEntries.map((entry, index) => `
-          <div class="phenotype-row">
+          <div class="phenotype-row has-options" data-index="${index}">
             <input class="phenotype-check" type="checkbox" data-index="${index}">
             <input class="phenotype-color" type="color" data-index="${index}" value="${entry.color}">
             <span class="phenotype-name">${escapeHtml(entry.name)}</span>
-          <span class="phenotype-count">${entry.count}</span>
+            <span class="phenotype-count">${entry.count}</span>
+            <button class="small-button phenotype-options-toggle" type="button" data-index="${index}" aria-label="Show pathogenicity options for ${escapeHtml(entry.name)}">...</button>
+            <div class="phenotype-options" data-index="${index}">
+              ${phenotypePathogenicityOptions(index, entry.name)}
+            </div>
         </div>
       `).join("");
 
         panel.querySelectorAll("input").forEach((input) => {
-          input.addEventListener("change", handlePhenotypeOverlayChange);
+          if (input.classList.contains("phenotype-pathogenicity-color")) {
+            input.addEventListener("input", () => {
+              input.dataset.customized = "true";
+            });
+          }
+          input.addEventListener("change", handleOverlayFilterChange);
         });
+        panel.querySelectorAll(".phenotype-check").forEach((checkbox) => {
+          checkbox.addEventListener("change", () => syncPhenotypeOptionsVisibility(Number(checkbox.dataset.index)));
+        });
+        panel.querySelectorAll(".phenotype-options-toggle").forEach((button) => {
+          button.addEventListener("click", () => togglePhenotypeOptions(Number(button.dataset.index)));
+        });
+      }
+
+      function phenotypePathogenicityOptions(index, phenotype) {
+        return `
+          <label class="pathogenicity-row pathogenicity-toggle">
+            <input class="phenotype-use-pathogenicity-colors" type="checkbox" data-index="${index}">
+            <span>Use pathogenicity-specific colors for this phenotype</span>
+          </label>
+        ` + PATHOGENICITY_CLASSES.map((pathClass) => `
+          <label class="pathogenicity-row">
+            <input class="phenotype-pathogenicity-check" type="checkbox" data-index="${index}" data-class="${pathClass.key}" checked>
+            <span>${escapeHtml(pathClass.label)}</span>
+            <input class="phenotype-pathogenicity-color" type="color" data-index="${index}" data-class="${pathClass.key}" value="${pathClass.color}" aria-label="${escapeHtml(pathClass.label)} color for ${escapeHtml(phenotype)}">
+            <span class="pathogenicity-count">${phenotypePathogenicityResidueCount(phenotype, pathClass.key)} residues</span>
+          </label>
+        `)
+          .join("");
+      }
+
+      function syncPhenotypeOptionsVisibility(index) {
+        const checkbox = document.querySelector(`.phenotype-check[data-index="${index}"]`);
+        const options = document.querySelector(`.phenotype-options[data-index="${index}"]`);
+        if (options && checkbox?.checked) {
+          options.classList.add("is-visible");
+        }
+      }
+
+      function togglePhenotypeOptions(index) {
+        const options = document.querySelector(`.phenotype-options[data-index="${index}"]`);
+        if (options) {
+          options.classList.toggle("is-visible");
+        }
       }
 
     function populateResidueFocus() {
@@ -1144,18 +1359,35 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       return PREPROCESSED_ANNOTATIONS.residue_list || [];
     }
 
-    function selectedPhenotypes() {
-      const selected = new Map();
+      function selectedPhenotypes() {
+        const selected = new Map();
       document.querySelectorAll(".phenotype-check:checked").forEach((checkbox) => {
         const index = Number(checkbox.dataset.index);
         const entry = phenotypeEntries[index];
         const colorInput = document.querySelector(`.phenotype-color[data-index="${index}"]`);
         if (entry && colorInput) {
-          selected.set(entry.name, colorInput.value);
+          selected.set(entry.name, {
+            color: colorInput.value,
+            usePathogenicityColors: Boolean(document.querySelector(`.phenotype-use-pathogenicity-colors[data-index="${index}"]`)?.checked),
+            classes: selectedPhenotypeClasses(index),
+          });
         }
       });
-      return selected;
-    }
+        return selected;
+      }
+
+      function selectedPhenotypeClasses(index) {
+        const classes = new Map();
+        PATHOGENICITY_CLASSES.forEach((pathClass) => {
+          const checkbox = document.querySelector(`.phenotype-pathogenicity-check[data-index="${index}"][data-class="${pathClass.key}"]`);
+          const colorInput = document.querySelector(`.phenotype-pathogenicity-color[data-index="${index}"][data-class="${pathClass.key}"]`);
+          classes.set(pathClass.key, {
+            enabled: Boolean(checkbox?.checked),
+            color: colorInput?.value || selectedGlobalPathogenicityColor(pathClass.key),
+          });
+        });
+        return classes;
+      }
 
     function populateVariantList() {
       const list = document.getElementById("variantList");
@@ -1166,6 +1398,62 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         .map((annotation) => `<li>Residue ${annotation.residue}: ${annotation.primary_significance || "annotated"}, ${annotation.primary_phenotype || "no phenotype"} (${annotation.variant_count || 0} variants)</li>`)
         .join("");
     }
+
+      function populateDiseaseStats() {
+        const panel = document.getElementById("diseaseStats");
+        const residues = getResidueAnnotations();
+        if (!panel || residues.length === 0) {
+          if (panel) {
+            panel.innerHTML = "<p>No residue-level annotations available for stats.</p>";
+          }
+          return;
+        }
+
+        const annotated = residues.filter((annotation) => Number(annotation.variant_count) > 0);
+        const pathogenic = annotated.filter((annotation) => Number(annotation.max_pathogenicity) >= 4);
+        const likelyPathogenic = annotated.filter((annotation) => Number(annotation.max_pathogenicity) === 3);
+        const uncertain = annotated.filter((annotation) => Number(annotation.max_pathogenicity) === 2);
+        const benign = annotated.filter((annotation) => Number(annotation.max_pathogenicity) <= 1);
+        const surpriseResidues = residues.filter((annotation) => surpriseClass(annotation));
+        const phenotypeCounts = {};
+        annotated.forEach((annotation) => {
+          (annotation.phenotypes || []).forEach((phenotype) => {
+            phenotypeCounts[phenotype] = (phenotypeCounts[phenotype] || 0) + 1;
+          });
+        });
+        const topPhenotypes = Object.entries(phenotypeCounts)
+          .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+          .slice(0, 5);
+        const network = buildContactNetwork(selectedPhenotypes(), selectedContactCutoff());
+        const mainNeighborhoods = summarizeContactNeighborhoods(network);
+        const contactSummary = selectedPhenotypes().size === 0 ? `
+          <p class="legend-note">Contact neighborhoods are computed only from the currently selected phenotypes. Select one or more phenotypes to show disease neighborhoods.</p>
+        ` : network.nodes.length > 0 ? `
+          <p class="legend-note">Contact neighborhoods at ${selectedContactCutoff().toFixed(1)} A: showing ${mainNeighborhoods.length} main clusters of ${network.components.length} total, largest cluster ${network.largestClusterSize} residues.</p>
+        ` : `
+          <p class="legend-note">Contact network at ${selectedContactCutoff().toFixed(1)} A: no matching disease residues with resolved coordinates for the selected phenotypes.</p>
+        `;
+
+        panel.innerHTML = `
+          <div class="stats-grid">
+            ${statItem(annotated.length, "ClinVar-annotated residues")}
+            ${statItem(pathogenic.length, "pathogenic residues")}
+            ${statItem(likelyPathogenic.length, "likely pathogenic residues")}
+            ${statItem(uncertain.length, "uncertain/conflicting residues")}
+            ${statItem(benign.length, "benign/likely benign residues")}
+            ${statItem(surpriseResidues.length, "surprise outliers")}
+          </div>
+          ${contactSummary}
+          <p class="legend-note">Top phenotype residue burden:</p>
+          <ol class="mini-list">
+            ${topPhenotypes.map(([phenotype, count]) => `<li>${escapeHtml(phenotype)}: ${count} residues</li>`).join("") || "<li>No phenotype labels found.</li>"}
+          </ol>
+        `;
+      }
+
+      function statItem(value, label) {
+        return `<div class="stat"><strong>${value}</strong><span>${escapeHtml(label)}</span></div>`;
+      }
 
       function applyStyle(zoomFocus) {
         if (!viewer) {
@@ -1183,11 +1471,12 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         currentSceneKey = sceneKey(restOpacity);
         redrawShapeOverlays();
         applyFocus(focusResidue, zoomFocus);
+        populateDiseaseStats();
         updateLegend();
         viewer.render();
       }
 
-      function handlePhenotypeOverlayChange() {
+      function handleOverlayFilterChange() {
         if (!viewer) {
           return;
         }
@@ -1195,6 +1484,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         clearShapes();
         redrawShapeOverlays();
         applyFocus(focusResidue, false);
+        populateDiseaseStats();
         updateLegend();
         viewer.render();
       }
@@ -1227,10 +1517,11 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         const focusResidue = selectedFocusResidue();
         const opacity = focusResidue ? selectedBackgroundOpacity() : 1.0;
         const phenotypes = selectedPhenotypes();
+        const mode = document.getElementById("baseColorMode").value;
         if (isSurfaceStyle()) {
           addSurfaceModeMarkers(opacity);
         }
-        if (phenotypes.size > 0) {
+        if (mode !== "contact-network" && phenotypes.size > 0) {
           addPhenotypeMarkers(phenotypes);
         }
       }
@@ -1240,6 +1531,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           renderStyle: document.getElementById("renderStyle").value,
           baseColorMode: document.getElementById("baseColorMode").value,
           opacity: Number(opacity.toFixed(2)),
+          contactCutoff: Number(selectedContactCutoff().toFixed(1)),
         });
       }
 
@@ -1288,30 +1580,64 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         setStatus("Coloring by AlphaFold model confidence from the PDB B-factor column.");
       } else if (mode === "clinvar-pathogenicity") {
         getResidueAnnotations().forEach((annotation) => {
-          if (annotation.max_pathogenicity > 0) {
-            styleResidue(annotation.residue, annotation.pathogenic_color || "#999999", opacity, 0.14);
+          const pathClass = bestActivePathogenicityClass(annotation);
+          if (pathClass) {
+            styleResidue(annotation.residue, selectedGlobalPathogenicityColor(pathClass), opacity, 0.14);
           }
         });
         setStatus("Coloring ClinVar residues by strongest pathogenicity label.");
+      } else if (mode === "surprise") {
+        getResidueAnnotations().forEach((annotation) => {
+          const surprise = surpriseClass(annotation);
+          if (surprise) {
+            styleResidue(annotation.residue, surprise.color, opacity, 0.16);
+          }
+        });
+        setStatus("Coloring residues where ClinVar labels and AlphaMissense scores disagree.");
+      } else if (mode === "contact-network") {
+        styleWholeProtein("#d9d9d9", opacity);
+        addContactNetwork();
+        setStatus(`Showing main disease neighborhoods with an ${selectedContactCutoff().toFixed(1)} A cutoff. Sphere size tracks cluster size.`);
       }
     }
 
       function addPhenotypeMarkers(phenotypes) {
+        const activeGlobalClasses = selectedGlobalPathogenicityClasses();
         getResidueAnnotations().forEach((annotation) => {
-          const matchingPhenotypes = annotation.phenotypes
-            .filter((phenotype) => phenotypes.has(phenotype))
-            .sort();
-          if (matchingPhenotypes.length === 0) {
+          const markerItems = [];
+          (annotation.phenotypes || []).forEach((phenotype) => {
+            if (!phenotypes.has(phenotype)) {
+              return;
+            }
+            const phenotypeConfig = phenotypes.get(phenotype);
+            PATHOGENICITY_CLASSES.forEach((pathClass) => {
+              const globalConfig = activeGlobalClasses.get(pathClass.key);
+              const phenotypeClassConfig = phenotypeConfig.classes.get(pathClass.key);
+              if (!globalConfig?.enabled || !phenotypeClassConfig?.enabled) {
+                return;
+              }
+              if (!phenotypeHasPathogenicityClass(annotation, phenotype, pathClass.key)) {
+                return;
+              }
+              markerItems.push({
+                key: `${phenotype}:${pathClass.key}`,
+                color: phenotypeConfig.usePathogenicityColors
+                  ? (phenotypeClassConfig.color || globalConfig.color)
+                  : phenotypeConfig.color,
+              });
+            });
+          });
+          if (markerItems.length === 0) {
             return;
           }
           const radius = markerRadius(annotation, 0.38);
-          matchingPhenotypes.forEach((phenotype, index) => {
+          markerItems.forEach((item, index) => {
             styleResidueMarker(
               annotation.residue,
-              phenotypes.get(phenotype),
+              item.color,
               1.0,
               radius,
-              phenotypeMarkerCenter(annotation.residue, phenotype, index, matchingPhenotypes.length, radius)
+              phenotypeMarkerCenter(annotation.residue, item.key, index, markerItems.length, radius)
             );
           });
         });
@@ -1445,11 +1771,63 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         if (viewer && typeof viewer.removeAllShapes === "function") {
           viewer.removeAllShapes();
         }
+        clearContactNetworkLabels();
+      }
+
+      function clearContactNetworkLabels() {
+        if (!viewer) {
+          contactNetworkLabels = [];
+          return;
+        }
+        if (typeof viewer.removeLabel === "function") {
+          contactNetworkLabels.forEach((label) => {
+            viewer.removeLabel(label);
+          });
+        } else if (typeof viewer.removeAllLabels === "function") {
+          viewer.removeAllLabels();
+        }
+        contactNetworkLabels = [];
+      }
+
+      function addContactNetwork() {
+        const network = buildContactNetwork(selectedPhenotypes(), selectedContactCutoff());
+        const neighborhoods = summarizeContactNeighborhoods(network);
+        if (neighborhoods.length === 0) {
+          return;
+        }
+        neighborhoods.forEach((cluster, index) => {
+          viewer.addSphere({
+            center: cluster.center,
+            color: cluster.color,
+            opacity: 0.2,
+            radius: contactNeighborhoodRadius(cluster.size),
+          });
+          viewer.addSphere({
+            center: cluster.center,
+            color: cluster.color,
+            opacity: 0.92,
+            radius: contactNodeRadius(cluster.size),
+          });
+          if (typeof viewer.addLabel === "function") {
+            const label = viewer.addLabel(`${index + 1}: ${cluster.size}`, {
+              position: cluster.center,
+              backgroundColor: "rgba(255,255,255,0.72)",
+              fontColor: "#1f2937",
+              borderColor: "#d8dee8",
+              borderThickness: 1,
+              inFront: true,
+              showBackground: true,
+            });
+            if (label) {
+              contactNetworkLabels.push(label);
+            }
+          }
+        });
       }
 
       function addSurfaceModeMarkers(opacity) {
         const mode = document.getElementById("baseColorMode").value;
-        if (mode === "gray" || mode === "default") {
+        if (mode === "gray" || mode === "default" || mode === "contact-network") {
           return;
         }
         getResidueAnnotations().forEach((annotation) => {
@@ -1459,8 +1837,16 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
             styleResidue(annotation.residue, missenseClassColor(annotation.missense.class), opacity, 0.1);
           } else if (mode === "alphafold-confidence" && annotation.alphafold_confidence) {
             styleResidue(annotation.residue, annotation.alphafold_confidence.color, opacity, 0.08);
-          } else if (mode === "clinvar-pathogenicity" && annotation.max_pathogenicity > 0) {
-            styleResidue(annotation.residue, annotation.pathogenic_color || "#999999", opacity, 0.14);
+          } else if (mode === "clinvar-pathogenicity") {
+            const pathClass = bestActivePathogenicityClass(annotation);
+            if (pathClass) {
+              styleResidue(annotation.residue, selectedGlobalPathogenicityColor(pathClass), opacity, 0.14);
+            }
+          } else if (mode === "surprise") {
+            const surprise = surpriseClass(annotation);
+            if (surprise) {
+              styleResidue(annotation.residue, surprise.color, opacity, 0.16);
+            }
           }
         });
       }
@@ -1475,12 +1861,26 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
         if (phenotypes.size > 0) {
           const selectedItems = Array.from(phenotypes.entries())
-            .map(([phenotype, color]) => legendItem(color, phenotype))
+            .map(([phenotype, config]) => {
+              const activeClasses = PATHOGENICITY_CLASSES
+                .filter((pathClass) => selectedGlobalPathogenicityClasses().get(pathClass.key)?.enabled && config.classes.get(pathClass.key)?.enabled)
+                .map((pathClass) => pathClass.label)
+                .join(", ");
+              const label = config.usePathogenicityColors
+                ? `${phenotype}${activeClasses ? `: ${activeClasses}` : ""} (pathogenicity colors)`
+                : `${phenotype} (phenotype color)`;
+              return legendItem(config.color, label);
+            })
             .join("");
-          sections.push(`
-            <p class="legend-note">Phenotype overlay is active. The scaffold keeps the current base coloring mode, while selected phenotypes appear as colored residue markers.</p>
-            <div class="legend">${selectedItems}</div>
-          `);
+            sections.push(`
+              <p class="legend-note">Phenotype overlay is active. Hidden per-phenotype controls choose which pathogenicity classes appear, and the toggle decides whether that phenotype uses its own base color or pathogenicity-specific colors.</p>
+              <div class="legend">${selectedItems}</div>
+            `);
+          if (Array.from(phenotypes.values()).some((config) => config.usePathogenicityColors)) {
+            sections.push(pathogenicityColorLegend("Active pathogenicity marker colors"));
+          }
+        } else if (mode === "clinvar-pathogenicity") {
+          sections.push(`<p class="legend-note">ClinVar pathogenicity layer uses the active global class colors.</p>`);
         }
         legend.innerHTML = sections.join("");
       }
@@ -1523,12 +1923,22 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         if (mode === "clinvar-pathogenicity") {
           return `
             <p class="legend-note">Strongest ClinVar pathogenicity label at each residue.</p>
+            ${pathogenicityClassLegend()}
+          `;
+        }
+        if (mode === "contact-network") {
+          return `
+            <p class="legend-note">Disease contact network. It is computed only from the currently selected phenotypes, residue markers are hidden in this mode, and only the biggest neighborhoods are shown. Inner sphere size scales with cluster size.</p>
+            ${pathogenicityClassLegend()}
+          `;
+        }
+        if (mode === "surprise") {
+          return `
+            <p class="legend-note">Surprise layer: residues where ClinVar labels and AlphaMissense mean scores point in different directions.</p>
             <div class="legend">
-              ${legendItem("#b2182b", "Pathogenic")}
-              ${legendItem("#ef8a62", "Likely pathogenic")}
-              ${legendItem("#fddbc7", "Uncertain/conflicting")}
-              ${legendItem("#d1e5f0", "Likely benign")}
-              ${legendItem("#d9d9d9", "Benign or unannotated")}
+              ${legendItem("#7b3294", "ClinVar pathogenic, low AlphaMissense")}
+              ${legendItem("#008837", "ClinVar benign, high AlphaMissense")}
+              ${legendItem("#fdae61", "ClinVar uncertain, high AlphaMissense")}
             </div>
           `;
         }
@@ -1541,9 +1951,339 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           `;
       }
 
-    function legendItem(color, label) {
+      function legendItem(color, label) {
       return `<span class="legend-item"><span class="swatch" style="background:${color}"></span>${escapeHtml(label)}</span>`;
-    }
+      }
+
+      function pathogenicityColorLegend(note) {
+        return `
+          <p class="legend-note">${escapeHtml(note)}.</p>
+          ${pathogenicityClassLegend()}
+        `;
+      }
+
+      function pathogenicityClassLegend() {
+        const items = PATHOGENICITY_CLASSES
+          .filter((pathClass) => selectedGlobalPathogenicityClasses().get(pathClass.key)?.enabled)
+          .map((pathClass) => legendItem(selectedGlobalPathogenicityColor(pathClass.key), pathClass.label))
+          .join("");
+        return `<div class="legend">${items || '<span class="legend-note">No pathogenicity classes selected.</span>'}</div>`;
+      }
+
+      function selectedGlobalPathogenicityClasses() {
+        const classes = new Map();
+        PATHOGENICITY_CLASSES.forEach((pathClass) => {
+          const checkbox = document.querySelector(`.global-pathogenicity-check[data-class="${pathClass.key}"]`);
+          const colorInput = document.querySelector(`.global-pathogenicity-color[data-class="${pathClass.key}"]`);
+          classes.set(pathClass.key, {
+            enabled: Boolean(checkbox?.checked),
+            color: colorInput?.value || pathClass.color,
+          });
+        });
+        return classes;
+      }
+
+      function selectedGlobalPathogenicityColor(pathClassKey) {
+        return selectedGlobalPathogenicityClasses().get(pathClassKey)?.color || pathogenicityClassDefaults().get(pathClassKey)?.color || "#9ca3af";
+      }
+
+      function pathogenicityClassDefaults() {
+        return new Map(PATHOGENICITY_CLASSES.map((pathClass) => [pathClass.key, pathClass]));
+      }
+
+      function handleGlobalPathogenicityChange(event) {
+        if (event?.target?.classList?.contains("global-pathogenicity-color")) {
+          const pathClassKey = event.target.dataset.class;
+          document.querySelectorAll(`.phenotype-pathogenicity-color[data-class="${pathClassKey}"]`).forEach((input) => {
+            if (!input.dataset.customized) {
+              input.value = event.target.value;
+            }
+          });
+        }
+        handleOverlayFilterChange();
+      }
+
+      function phenotypeVariantSignificances(annotation, phenotype) {
+        const variants = annotation.variants || [];
+        const labels = variants
+          .filter((variant) => (variant.phenotype_names || []).includes(phenotype))
+          .map((variant) => variant.significance)
+          .filter(Boolean);
+        if (labels.length > 0) {
+          return labels;
+        }
+        return Object.keys(annotation.significance_counts || {});
+      }
+
+      function phenotypeHasPathogenicityClass(annotation, phenotype, pathClassKey) {
+        return phenotypeVariantSignificances(annotation, phenotype).some((label) => significanceClassKey(label) === pathClassKey);
+      }
+
+      function bestActivePathogenicityClass(annotation) {
+        const activeClasses = selectedGlobalPathogenicityClasses();
+        const labels = Object.keys(annotation.significance_counts || {});
+        return labels
+          .map((label) => significanceClassKey(label))
+          .filter((pathClassKey) => activeClasses.get(pathClassKey)?.enabled)
+          .sort((left, right) => pathogenicityClassRank(right) - pathogenicityClassRank(left))[0] || null;
+      }
+
+      function pathogenicityClassResidueCount(pathClassKey) {
+        return getResidueAnnotations()
+          .filter((annotation) => Object.keys(annotation.significance_counts || {}).some((label) => significanceClassKey(label) === pathClassKey))
+          .length;
+      }
+
+      function phenotypePathogenicityResidueCount(phenotype, pathClassKey) {
+        return getResidueAnnotations()
+          .filter((annotation) => (annotation.phenotypes || []).includes(phenotype) && phenotypeHasPathogenicityClass(annotation, phenotype, pathClassKey))
+          .length;
+      }
+
+      function significanceClassKey(significance) {
+        const severity = significanceSeverity(significance);
+        if (severity >= 4) {
+          return "pathogenic";
+        }
+        if (severity === 3) {
+          return "likely-pathogenic";
+        }
+        if (severity === 2) {
+          return "uncertain";
+        }
+        return "benign";
+      }
+
+      function pathogenicityClassRank(pathClassKey) {
+        if (pathClassKey === "pathogenic") {
+          return 4;
+        }
+        if (pathClassKey === "likely-pathogenic") {
+          return 3;
+        }
+        if (pathClassKey === "uncertain") {
+          return 2;
+        }
+        if (pathClassKey === "benign") {
+          return 1;
+        }
+        return 0;
+      }
+
+      function activeDiseaseClassKeysForAnnotation(annotation, phenotypes) {
+        if (!phenotypes || phenotypes.size === 0) {
+          return [];
+        }
+        const activeClasses = selectedGlobalPathogenicityClasses();
+        const classKeys = new Set();
+        (annotation.phenotypes || []).forEach((phenotype) => {
+          if (!phenotypes.has(phenotype)) {
+            return;
+          }
+          const phenotypeConfig = phenotypes.get(phenotype);
+          PATHOGENICITY_CLASSES.forEach((pathClass) => {
+            const globalConfig = activeClasses.get(pathClass.key);
+            const phenotypeClassConfig = phenotypeConfig.classes.get(pathClass.key);
+            if (!globalConfig?.enabled || !phenotypeClassConfig?.enabled) {
+              return;
+            }
+            if (phenotypeHasPathogenicityClass(annotation, phenotype, pathClass.key)) {
+              classKeys.add(pathClass.key);
+            }
+          });
+        });
+        return Array.from(classKeys);
+      }
+
+      function buildContactNetwork(phenotypes, cutoff) {
+        const nodes = getResidueAnnotations()
+          .map((annotation) => {
+            const classKeys = activeDiseaseClassKeysForAnnotation(annotation, phenotypes);
+            const center = residueCenter(annotation.residue);
+            if (classKeys.length === 0 || !center) {
+              return null;
+            }
+            const dominantClass = classKeys.sort((left, right) => pathogenicityClassRank(right) - pathogenicityClassRank(left))[0];
+            return {
+              residue: annotation.residue,
+              annotation,
+              center,
+              classKeys,
+              dominantClass,
+              color: selectedGlobalPathogenicityColor(dominantClass),
+              clusterSize: 1,
+              degree: 0,
+            };
+          })
+          .filter(Boolean);
+
+        const adjacency = new Map(nodes.map((node) => [node.residue, new Set()]));
+        const edges = [];
+        for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+          for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+            const leftNode = nodes[leftIndex];
+            const rightNode = nodes[rightIndex];
+            const distance = centerDistance(leftNode.center, rightNode.center);
+            if (distance > cutoff) {
+              continue;
+            }
+            adjacency.get(leftNode.residue).add(rightNode.residue);
+            adjacency.get(rightNode.residue).add(leftNode.residue);
+            edges.push({
+              start: leftNode.center,
+              end: rightNode.center,
+              residues: [leftNode.residue, rightNode.residue],
+              distance,
+              clusterSize: 1,
+            });
+          }
+        }
+
+        const components = [];
+        const seen = new Set();
+        nodes.forEach((node) => {
+          if (seen.has(node.residue)) {
+            return;
+          }
+          const stack = [node.residue];
+          const componentResidues = [];
+          seen.add(node.residue);
+          while (stack.length > 0) {
+            const residue = stack.pop();
+            componentResidues.push(residue);
+            adjacency.get(residue).forEach((neighbor) => {
+              if (!seen.has(neighbor)) {
+                seen.add(neighbor);
+                stack.push(neighbor);
+              }
+            });
+          }
+          components.push(componentResidues);
+        });
+
+        const componentByResidue = new Map();
+        components.forEach((componentResidues, componentIndex) => {
+          componentResidues.forEach((residue) => {
+            componentByResidue.set(residue, { index: componentIndex, size: componentResidues.length });
+          });
+        });
+
+        nodes.forEach((node) => {
+          const component = componentByResidue.get(node.residue);
+          node.clusterSize = component?.size || 1;
+          node.degree = adjacency.get(node.residue)?.size || 0;
+        });
+        edges.forEach((edge) => {
+          edge.clusterSize = componentByResidue.get(edge.residues[0])?.size || 1;
+        });
+
+        return {
+          nodes,
+          edges,
+          components,
+          largestClusterSize: components.reduce((maximum, component) => Math.max(maximum, component.length), 0),
+        };
+      }
+
+      function summarizeContactNeighborhoods(network) {
+        const nodesByResidue = new Map(network.nodes.map((node) => [node.residue, node]));
+        return network.components
+          .map((componentResidues) => {
+            const clusterNodes = componentResidues
+              .map((residue) => nodesByResidue.get(residue))
+              .filter(Boolean);
+            if (clusterNodes.length === 0) {
+              return null;
+            }
+            const center = averageCenters(clusterNodes.map((node) => node.center));
+            const classCounts = new Map();
+            clusterNodes.forEach((node) => {
+              classCounts.set(node.dominantClass, (classCounts.get(node.dominantClass) || 0) + 1);
+            });
+            const dominantClass = Array.from(classCounts.entries())
+              .sort((left, right) => right[1] - left[1] || pathogenicityClassRank(right[0]) - pathogenicityClassRank(left[0]))[0]?.[0] || "uncertain";
+            return {
+              size: clusterNodes.length,
+              center,
+              color: selectedGlobalPathogenicityColor(dominantClass),
+              dominantClass,
+              residues: componentResidues,
+            };
+          })
+          .filter((cluster) => cluster && cluster.size >= CONTACT_CLUSTER_MIN_SIZE && cluster.center)
+          .sort((left, right) => right.size - left.size)
+          .slice(0, CONTACT_NEIGHBORHOOD_LIMIT);
+      }
+
+      function averageCenters(centers) {
+        if (!centers || centers.length === 0) {
+          return null;
+        }
+        let x = 0;
+        let y = 0;
+        let z = 0;
+        centers.forEach((center) => {
+          x += center.x;
+          y += center.y;
+          z += center.z;
+        });
+        return {
+          x: x / centers.length,
+          y: y / centers.length,
+          z: z / centers.length,
+        };
+      }
+
+      function centerDistance(left, right) {
+        const dx = left.x - right.x;
+        const dy = left.y - right.y;
+        const dz = left.z - right.z;
+        return Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+      }
+
+      function significanceSeverity(significance) {
+        const normalized = String(significance || "").toLowerCase();
+        if (normalized.includes("pathogenic/likely pathogenic")) {
+          return 4;
+        }
+        if (normalized.includes("pathogenic") && !normalized.includes("likely")) {
+          return 4;
+        }
+        if (normalized.includes("likely pathogenic")) {
+          return 3;
+        }
+        if (normalized.includes("uncertain") || normalized.includes("conflicting")) {
+          return 2;
+        }
+        if (normalized.includes("likely benign")) {
+          return 1;
+        }
+        if (normalized.includes("benign")) {
+          return 0;
+        }
+        return 0;
+      }
+
+      function surpriseClass(annotation) {
+        if (!annotation.missense) {
+          return null;
+        }
+        const score = Number(annotation.missense.score);
+        if (!Number.isFinite(score)) {
+          return null;
+        }
+        const severity = Number(annotation.max_pathogenicity) || 0;
+        if (severity >= 3 && score <= 0.35) {
+          return { label: "ClinVar pathogenic, low AlphaMissense", color: "#7b3294" };
+        }
+        if (severity <= 1 && annotation.variant_count > 0 && score >= 0.75) {
+          return { label: "ClinVar benign, high AlphaMissense", color: "#008837" };
+        }
+        if (severity === 2 && score >= 0.75) {
+          return { label: "ClinVar uncertain, high AlphaMissense", color: "#fdae61" };
+        }
+        return null;
+      }
 
     function selectedFocusResidue() {
       const value = document.getElementById("focusResidue").value;
@@ -1560,6 +2300,11 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       return Math.max(0.5, Math.min(5.0, Number.isFinite(value) ? value : 1.6));
     }
 
+    function selectedContactCutoff() {
+      const value = Number(document.getElementById("contactCutoff").value);
+      return Math.max(4.0, Math.min(12.0, Number.isFinite(value) ? value : 8.0));
+    }
+
     function updateBackgroundOpacityLabel() {
       document.getElementById("backgroundOpacityValue").textContent = selectedBackgroundOpacity().toFixed(2);
     }
@@ -1570,12 +2315,26 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         document.getElementById("markerScaleText").value = label;
       }
 
+      function updateContactCutoffLabel() {
+        const label = `${selectedContactCutoff().toFixed(1)} A`;
+        document.getElementById("contactCutoffValue").textContent = label;
+        document.getElementById("contactCutoffText").value = label;
+      }
+
       function syncMarkerScaleFromText() {
         const input = document.getElementById("markerScaleText");
         const parsed = Number.parseFloat(String(input.value).replace(/x/gi, "").trim());
         const normalized = Math.max(0.5, Math.min(5.0, Number.isFinite(parsed) ? parsed : selectedMarkerScale()));
         document.getElementById("markerScale").value = normalized.toFixed(1);
         updateMarkerScaleLabel();
+      }
+
+      function syncContactCutoffFromText() {
+        const input = document.getElementById("contactCutoffText");
+        const parsed = Number.parseFloat(String(input.value).replace(/a/gi, "").trim());
+        const normalized = Math.max(4.0, Math.min(12.0, Number.isFinite(parsed) ? parsed : selectedContactCutoff()));
+        document.getElementById("contactCutoff").value = normalized.toFixed(1);
+        updateContactCutoffLabel();
       }
 
     function resetView() {
@@ -1590,26 +2349,58 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       document.querySelectorAll(".phenotype-check").forEach((checkbox) => {
         checkbox.checked = false;
       });
+      PATHOGENICITY_CLASSES.forEach((pathClass) => {
+        const globalCheck = document.querySelector(`.global-pathogenicity-check[data-class="${pathClass.key}"]`);
+        const globalColor = document.querySelector(`.global-pathogenicity-color[data-class="${pathClass.key}"]`);
+        if (globalCheck) {
+          globalCheck.checked = true;
+        }
+        if (globalColor) {
+          globalColor.value = pathClass.color;
+        }
+      });
+      document.querySelectorAll(".phenotype-pathogenicity-check").forEach((checkbox) => {
+        checkbox.checked = true;
+      });
+      document.querySelectorAll(".phenotype-use-pathogenicity-colors").forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      document.querySelectorAll(".phenotype-pathogenicity-color").forEach((input) => {
+        const pathClass = pathogenicityClassDefaults().get(input.dataset.class);
+        input.value = pathClass?.color || "#9ca3af";
+        delete input.dataset.customized;
+      });
+      document.querySelectorAll(".phenotype-options").forEach((options) => {
+        options.classList.remove("is-visible");
+      });
+      document.getElementById("contactCutoff").value = "8.0";
+      updateContactCutoffLabel();
       applyStyle(false);
       viewer.zoomTo();
       viewer.render();
     }
 
       function residueCenter(residue) {
+        if (residueCenterCache.has(residue)) {
+          return residueCenterCache.get(residue);
+        }
         if (!model || typeof model.selectedAtoms !== "function") {
           return null;
         }
         const atoms = model.selectedAtoms({ resi: residue }) || [];
         if (atoms.length === 0) {
+          residueCenterCache.set(residue, null);
           return null;
         }
         const alphaCarbon = atoms.find((atom) => String(atom.atom || "").toUpperCase() === "CA");
         if (alphaCarbon) {
-          return {
+          const center = {
             x: Number(alphaCarbon.x) || 0,
             y: Number(alphaCarbon.y) || 0,
             z: Number(alphaCarbon.z) || 0,
           };
+          residueCenterCache.set(residue, center);
+          return center;
         }
         let x = 0;
         let y = 0;
@@ -1620,13 +2411,22 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         z += Number(atom.z) || 0;
       });
         const count = atoms.length;
-        return { x: x / count, y: y / count, z: z / count };
+        const center = { x: x / count, y: y / count, z: z / count };
+        residueCenterCache.set(residue, center);
+        return center;
       }
 
       function focusCameraOnResidue(residue) {
+        if (typeof viewer.center === "function") {
+          viewer.center({ resi: residue }, 350);
+          if (typeof viewer.zoom === "function") {
+            viewer.zoom(1.08, 250);
+          }
+          return;
+        }
         viewer.zoomTo({ resi: residue });
         if (typeof viewer.zoom === "function") {
-          viewer.zoom(0.99, 250);
+          viewer.zoom(1.55, 250);
         }
       }
 
@@ -1664,17 +2464,47 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       return getResidueAnnotations().find((annotation) => Number(annotation.residue) === Number(residue)) || null;
     }
 
-    function markerRadius(annotation, baseRadius = 0.36) {
-      const variantCount = Math.max(1, Number(annotation?.variant_count) || 1);
-      const scale = selectedMarkerScale();
-      const variantBoost = 1 + Math.log2(variantCount) * 0.25;
-      return Math.max(0.16, baseRadius * variantBoost * scale);
-    }
+      function markerRadius(annotation, baseRadius = 0.36) {
+        const variantCount = Math.max(1, Number(annotation?.variant_count) || 1);
+        const scale = selectedMarkerScale();
+        const variantBoost = 1 + Math.log2(variantCount) * 0.25;
+        return Math.max(0.16, baseRadius * variantBoost * scale);
+      }
 
-    function missenseClassColor(value) {
-      const normalized = String(value || "").toLowerCase();
-      return MISSENSE_CLASS_COLORS[normalized] || "#9ca3af";
-    }
+      function contactNodeRadius(clusterSize) {
+        const scale = selectedMarkerScale();
+        return Math.max(0.2, Math.min(1.5, (0.16 + (0.09 * Math.sqrt(Math.max(1, clusterSize)))) * scale));
+      }
+
+      function contactNeighborhoodRadius(clusterSize) {
+        const scale = selectedMarkerScale();
+        return Math.max(0.45, Math.min(3.8, (0.42 + (0.22 * Math.sqrt(Math.max(1, clusterSize)))) * scale));
+      }
+
+      function significanceColor(significance) {
+        const normalized = String(significance || "").toLowerCase();
+        if (normalized.includes("pathogenic") && !normalized.includes("likely")) {
+          return "#b2182b";
+        }
+        if (normalized.includes("likely pathogenic")) {
+          return "#ef8a62";
+        }
+        if (normalized.includes("uncertain") || normalized.includes("conflicting")) {
+          return "#fddbc7";
+        }
+        if (normalized.includes("likely benign")) {
+          return "#d1e5f0";
+        }
+        if (normalized.includes("benign")) {
+          return "#d9d9d9";
+        }
+        return "#9ca3af";
+      }
+
+      function missenseClassColor(value) {
+        const normalized = String(value || "").toLowerCase();
+        return MISSENSE_CLASS_COLORS[normalized] || "#9ca3af";
+      }
 
     function scoreToColor(score) {
       const clamped = Math.max(0, Math.min(1, Number(score) || 0));
