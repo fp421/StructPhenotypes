@@ -31,3 +31,26 @@ python structpheno/get_alphamissense.py SCN2A --variants
 - `std_pathogenicity` — Variation at this position
 
 Use any human gene name: `BRCA1`, `MECP2`, `TP53`, `HTT`, etc.
+
+## Quick Start: gnomAD Variants
+
+Get observed population variants (allele frequencies) for your protein:
+
+```bash
+# Fetch variants via the gnomAD API (no setup required)
+python structpheno/get_gnomad.py SCN2A
+# Output: data/gnomad/SCN2A/variants.csv (6560 variants)
+
+# Also write a JSON report compatible with visualize.py
+python structpheno/get_gnomad.py SCN2A --report
+# Output: data/gnomad/SCN2A/report.json
+```
+
+**Output columns:**
+- `variant_id`, `pos`, `ref`, `alt` — Genomic variant identifiers
+- `consequence` — Predicted effect (e.g. missense_variant)
+- `hgvsp` — Protein-level change
+- `residue`, `ref_aa`, `alt_aa` — Amino acid position and substitution
+- `allele_count`, `allele_number`, `allele_freq` — Population frequency
+
+Use any human gene name: `BRCA1`, `MECP2`, `TP53`, `HTT`, etc.
