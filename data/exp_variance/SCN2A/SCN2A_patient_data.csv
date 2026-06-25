@@ -1,0 +1,182 @@
+group,patient,variant,function_call,location,CADD,REVEL,ACMG_significance,inheritance,sex,age_at_seizure_onset,initial_seizure_type,triggers,other_seizure_types,contractures_bone_fractures,movement_disorder_onset,family_history,age_at_last_followup,development_delay_onset,EEG,MRI,seizure_outcome,seizure_free,seizure_reduction,no_effect,worsening,reference
+early-infantile phenotype - intermediate (normal development),1,p.A263V,GOF,,,,,de novo,,1 day,,,,,,,19 months,Normal,,,,,,,,Johannesen 2016
+early-infantile phenotype - intermediate,2,p.A263V,GOF,,,,,de novo,,7 days,,,,,,,6 years,Delayed (mild),,,,,,,,Schwarz 2016 (pt 3)/Schwarz 2019 (pt 10)
+early-infantile phenotype - intermediate,3,p.A263V,GOF,,,,,de novo,,1 day,,,,,,,18 years,Learning difficulties (normal IQ),,,,,,,,Liao 2010/Schwarz 2016 (pt 4)/Schwarz 2019 (pt 12)
+early-infantile phenotype - severe,4,p.A263V,GOF,,,,,de novo,,1 day,,,,,,,19 days (deceased),n.a.,,,,,,,,Touma 2013 (Twin A)
+early-infantile phenotype - severe,5,p.A263V,GOF,,,,,de novo,,1 day,,,,,,,2.5 years,Motor delay (severe),,,,,,,,Touma 2013 (Twin B)
+early-infantile phenotype - severe,6,p.A263V,GOF,,,,,de novo,,3 weeks,,,,,,,13 years (deceased),Delayed (severe),,,,,,,,Wolff 2017 (pt 34)
+early-infantile phenotype - intermediate,7,p.A263V,GOF,,,,,"inherited (paternal, unaffected father)",,2 months,,,,,,,3 years,Motor delay (UK severity),,,,,,,,"Schwarz 2019 (pt 3, is sister of pt4)"
+early-infantile phenotype - intermediate,8,p.A263V,GOF,,,,,"inherited (paternal, unaffected father)",,10 days,,,,,,,7 years,Delayed (UK severity),,,,,,,,"Schwarz 2019 (pt 4, is brother of patient 3)"
+Unaffected (early-infantile phenotype family),9,p.A263V,GOF,,,,,UK,,No epilepsy,,,,,,,n.a. (adult),Normal,,,,,,,,Schwarz 2019 (unaffected father of pts 3 and 4)
+early-infantile phenotype - intermediate,10,p.A263V,GOF,,,,,"UK (mother negative, father NT)",,2 days,,,,,,,16 years,Learning difficulties (normal IQ),,,,,,,,Schwarz 2019 (pt 7)
+early-infantile phenotype - benign,11,p.A263V,GOF,,,,,UK,,3 days,,,,,,,3 months,Normal,,,,,,,,This study
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,12,p.D195G,LOF,,,,,de novo,,10 months,,,,,,,3 years,Delayed (severe),,,,,,,,This study
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,13,p.D195G,LOF,,,,,de novo,,12 months,,,,,,,2 years,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - benign,14,p.D343G,Presumed GOF,,,,,de novo,,6 days,,,,,,,18 months,Normal,,,,,,,,Wolff 2017 (pt 5)
+early-infantile phenotype - intermediate,15,p.D343G,Presumed GOF,,,,,de novo,,6 months,,,,,,,5 years,Delayed (mild),,,,,,,,Schwarz 2019 (pt 9)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,16,p.E1211K,LOF,,,,,de novo,,11 months,,,,,,,22 years,Delayed (severe),,,,,,,,Ogiwara 2009 (pt 1)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,17,p.E1211K,LOF,,,,,"UK (mother negative, father NT)",,15 months,,,,,,,6 years,Delayed (severe),,,,,,,,Wong 2015
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,18,p.E1211K,LOF,,,,,de novo,,11 months,,,,,,,4 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 49)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,19,p.E1211K,LOF,,,,,de novo,,18 months,,,,,,,6 years,Delayed (severe),,,,,,,,This study
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,20,p.E1211K,LOF,,,,,de novo,,11 months,,,,,,,3 years,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - benign,21,p.E1321K,GOF,,,,,inherited,,3 days,,,,,,,n.a.,Normal,,,,,,,,"Grinton 2015 (family 30, 4 family members)"
+early-infantile phenotype - benign,22,p.E1321K,GOF,,,,,inherited,,3 days,,,,,,,n.a.,Normal,,,,,,,,"Grinton 2015 (family 30, 4 family members)"
+early-infantile phenotype - benign,23,p.E1321K,GOF,,,,,inherited,,3 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 30, 4 family members)"
+early-infantile phenotype - benign,24,p.E1321K,GOF,,,,,inherited,,3 months,,,,,,,n.a.,Normal,,,,,,,,"Grinton 2015 (family 30, 4 family members)"
+early-infantile phenotype - benign,25,p.E1321K,GOF,,,,,de novo,,3 days,,,,,,,n.a.,Normal,,,,,,,,Kong 2019 (pt 43)
+early-infantile phenotype - severe,26,p.E999K,GOF,,,,,n.a.,,6 days,,,,,,,n.a.,Delayed (severe),,,,,,,,Nakamura 2013 (pt 322)
+early-infantile phenotype - severe,27,p.E999K,GOF,,,,,de novo,,n.a.,,,,,,,n.a.,Delayed (severe),,,,,,,,Allen 2016
+early-infantile phenotype - severe,28,p.E999K,GOF,,,,,de novo,,1 month,,,,,,,n.a.,Delayed (severe),,,,,,,,Trump 2016 (pt 45)
+early-infantile phenotype - severe,29,p.E999K,GOF,,,,,de novo,,1 day,,,,,,,5 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 11)
+early-infantile phenotype - severe,30,p.E999K,GOF,,,,,de novo,,3 days,,,,,,,22 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 29)
+early-infantile phenotype - intermediate,31,p.F1651C,Presumed GOF,,,,,de novo (mosaic),,6 weeks,,,,,,,9 months,Delayed (mild),,,,,,,,Wolff 2017 (pt 35)
+early-infantile phenotype - intermediate,32,p.F1651C,Presumed GOF,,,,,de novo,,5 days,,,,,,,2 years,Delayed (mild),,,,,,,,Schwarz 2019 (pt 2)
+early-infantile phenotype - severe,33,p.G882E,Presumed GOF,,,,,de novo,,4 days,,,,,,,8 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 30)
+early-infantile phenotype - severe,34,p.G882E,Presumed GOF,,,,,de novo,,1 day,,,,,,,14 years,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - severe,35,p.#K905N,GOF,,,,,de novo,,2 days,,,,,,,4 years,Delayed (severe),,,,,,,,Carvill 2013/Howell 2015 (pt 2)
+early-infantile phenotype - severe,36,p.K908E,Presumed GOF,,,,,de novo,,1 day,,,,,,,8 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 18)
+early-infantile phenotype - benign,37,p.K908E,Presumed GOF,,,,,UK,,n.a.,,,,,,,n.a. (adult),n.a.,,,,,,,,Lauxmann 2018 (I.2)
+early-infantile phenotype - benign,38,p.K908E,Presumed GOF,,,,,inherited,,<3 months,,,,,,,7 years,Normal,,,,,,,,Lauxmann 2018 (II.1)
+early-infantile phenotype - benign,39,p.K908E,Presumed GOF,,,,,inherited,,n.a.,,,,,,,n.a.,n.a.,,,,,,,,Lauxmann 2018 (II.2)
+early-infantile phenotype - benign,40,p.L1330F,Presumed GOF,,,,,UK,,<3.5 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Heron 2002 (Family A, 7 members, I-1)"
+early-infantile phenotype - benign,41,p.L1330F,Presumed GOF,,,,,inherited,,<3.5 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Heron 2002 (Family A, 7 members, II-1)"
+early-infantile phenotype - benign,42,p.L1330F,Presumed GOF,,,,,inherited,,<3.5 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Heron 2002 (Family A, 7 members, II-3)"
+early-infantile phenotype - benign,43,p.L1330F,Presumed GOF,,,,,inherited,,<3.5 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Heron 2002 (Family A, 7 members, III-1)"
+early-infantile phenotype - benign,44,p.L1330F,Presumed GOF,,,,,inherited,,<3.5 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Heron 2002 (Family A, 7 members, III-3)"
+early-infantile phenotype - benign,45,p.L1330F,Presumed GOF,,,,,inherited,,<3.5 months,,,,,,,n.a. (adult),Normal,,,,,,,,"Heron 2002 (Family A, 7 members, III-5)"
+early-infantile phenotype - benign,46,p.L1330F,Presumed GOF,,,,,inherited,,<3.5 months,,,,,,,n.a.,Normal,,,,,,,,"Heron 2002 (Family A, 7 members, IV-1)"
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,47,p.L1342P,Presumed LOF,,,,,de novo,,3 months,,,,,,,39 months,Delayed (severe),,,,,,,,Matalon 2014
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,48,p.L1342P,Presumed LOF,,,,,UK,,5 months,,,,,,,n.a (>4 years),Delayed (severe),,,,,,,,Hackenberg 2014
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,49,p.L1342P,Presumed LOF,,,,,de novo,,6 months,,,,,,,n.a.,Delayed (severe),,,,,,,,Dimassi 2016
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,50,p.L1342P,Presumed LOF,,,,,de novo,,6 months,,,,,,,16 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 43)
+early-infantile phenotype - benign,51,p.L1563V,GOF,,,,,UK,,1 week,,,,,,,n.a. (adult),Normal,,,,,,,,Lewis 1996 (pt I-1)/Heron 2002 (Family B - 6 members)
+early-infantile phenotype - benign,52,p.L1563V,GOF,,,,,inherited,,12 days,,,,,,,n.a. (adult),Normal,,,,,,,,Lewis 1996 (pt II-1)/Heron 2002 (Family B - 6 members)
+early-infantile phenotype - benign,53,p.L1563V,GOF,,,,,inherited,,3 months,,,,,,,n.a. (adult),Normal,,,,,,,,Lewis 1996 (pt II-3)/Heron 2002 (Family B - 6 members)
+early-infantile phenotype - benign,54,p.L1563V,GOF,,,,,inherited,,3 days,,,,,,,n.a.,Normal,,,,,,,,Lewis 1996 (pt III-3)/Heron 2002 (Family B - 6 members)
+early-infantile phenotype - benign,55,p.L1563V,GOF,,,,,inherited,,3.5 months,,,,,,,n.a.,Normal,,,,,,,,Lewis 1996 (pt III-4)/Heron 2002 (Family B - 6 members)
+early-infantile phenotype - benign,56,p.L1563V,GOF,,,,,inherited,,3.5 months,,,,,,,n.a.,Normal,,,,,,,,Lewis 1996 (pt III-5)/Heron 2002 (Family B - 6 members)
+early-infantile phenotype - severe,57,p.M1338T,Presumed GOF,,,,,de novo,,14 days,,,,,,,5 years,Delayed (severe),,,,,,,,Nakamura 2013 (pt 230)
+early-infantile phenotype - intermediate,58,p.M1338T,Presumed GOF,,,,,de novo,,2 days,,,,,,,9 months,Motor delay (mild),,,,,,,,this study
+early-infantile phenotype - benign,59,p.M252V,Presumed GOF,,,,,UK,,UK (infancy),,,,,,,n.a. (adult),Normal,,,,,,,,Liao 2010 (I.1)
+Unaffected (early-infantile phenotype family),60,p.M252V,Presumed GOF,,,,,inherited,,Unaffected,,,,,,,n.a.,Normal,,,,,,,,Liao 2010 (II.2)
+early-infantile phenotype - benign,61,p.M252V,Presumed GOF,,,,,inherited,,4 months,,,,,,,8 years,Normal,,,,,,,,Liao 2010 (III.1)
+early-infantile phenotype - benign,62,p.M252V,Presumed GOF,,,,,inherited,,6 days,,,,,,,6 years,Normal,,,,,,,,Liao 2010 (III.2)
+early-infantile phenotype - severe,63,p.N212D,Presumed GOF,,,,,de novo,,14 days,,,,,,,4 years,Delayed (severe),,,,,,,,Nakamura 2013 (pt 252)
+early-infantile phenotype - severe,64,p.N212D,Presumed GOF,,,,,de novo,,1 day,,,,,,,3 years,Delayed (severe),,,,,,,,This study
+intellectual disability/autism spectrum disorder without epilepsy,65,p.N503K*fs,Presumed LOF,,,,,UK,,No epilepsy,,,,,,,n.a.,Delayed (UK severity),,,,,,,,Rauch 2012
+later-onset phenotype - other childhood-onset epilepsy phenotype,66,p.N503K*fs,Presumed LOF,,,,,de novo,,6 years,,,,,,,20 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 64)
+early-infantile phenotype - benign,67,p.Q1531K,GOF,,,,,inherited,,2-3 days,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,68,p.Q1531K,GOF,,,,,inherited,,2-3 days,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,69,p.Q1531K,GOF,,,,,inherited,,2-3 days,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,70,p.Q1531K,GOF,,,,,inherited,,2-3 days,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,71,p.Q1531K,GOF,,,,,inherited,,2-3 days,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,72,p.Q1531K,GOF,,,,,inherited,,2-3 days,,,,,,,n.a.,Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,73,p.Q1531K,GOF,,,,,inherited,,12 weeks,,,,,,,n.a. (adult),Normal,,,,,,,,"Grinton 2015 (family 31, 7 family members)"
+early-infantile phenotype - benign,74,p.Q1531K,GOF,,,,,de novo,,3 days,,,,,,,14 months,Normal,,,,,,,,Wolff 2017 (pt 3)
+early-infantile phenotype - intermediate,75,p.Q383E,GOF,,,,,"de novo (presumed- patient NT but his parents negative, and his affected children positive)",,3 months,,,,,,,31 years,Delayed (mild),,,,,,,,Syrbe 2016 (pt II.2)
+early-infantile phenotype - severe,76,p.Q383E,GOF,,,,,inherited (presumed),,11 weeks,,,,,,,7 years,Delayed (severe),,,,,,,,"Syrbe 2016 (pt III.1, daughter of II.2)"
+early-infantile phenotype - intermediate (normal development),77,p.Q383E,GOF,,,,,inherited (presumed),,9 weeks,,,,,,,4 years,Normal,,,,,,,,"Syrbe 2016 (pt III.2, son of II.2)"
+early-infantile phenotype - benign,78,p.R1319Q,GOF,,,,,de novo,,5 months,,,,,,,27 years,Normal,,,,,,,,Berkovic 2004 (family E-1)
+early-infantile phenotype - benign,79,p.R1319Q,GOF,,,,,inherited,,3 months,,,,,,,7 months,Normal,,,,,,,,"Berkovic 2004 (family E-2, child of E-1)"
+Unaffected (early-infantile phenotype family),80,p.R1319Q,GOF,,,,,UK,,No epilepsy,,,,,,,n.a. (adult),Normal,,,,,,,,Berkovic 2004 (family F-1)
+early-infantile phenotype - benign,81,p.R1319Q,GOF,,,,,inherited,,4 months,,,,,,,40 years,Normal,,,,,,,,"Berkovic 2004 (family F-2, child of F-1)"
+early-infantile phenotype - benign,82,p.R1319Q,GOF,,,,,inherited,,7 months,,,,,,,36 years,Normal,,,,,,,,"Berkovic 2004 (family F-3, child of F-1)"
+early-infantile phenotype - benign,83,p.R1319Q,GOF,,,,,inherited,,7 months,,,,,,,16 years,Normal,,,,,,,,"Berkovic 2004 (family F-4, child of F-2)"
+early-infantile phenotype - benign,84,p.R1319Q,GOF,,,,,inherited,,5.5 months,,,,,,,10 years,Normal,,,,,,,,"Berkovic 2004 (family F-5, child of F-2)"
+early-infantile phenotype - benign,85,p.R1319Q,GOF,,,,,UK,,5 months (approx.),,,,,,,n.a. (adult),Normal,,,,,,,,Berkovic 2004 (family H-1)
+early-infantile phenotype - benign,86,p.R1319Q,GOF,,,,,inherited,,5 months (approx.),,,,,,,n.a. (adult),Normal,,,,,,,,"Berkovic 2004 (family H-2, child of H-1)"
+Unaffected (early-infantile phenotype family),87,p.R1319Q,GOF,,,,,inherited,,No epilepsy,,,,,,,n.a. (adult),Normal,,,,,,,,"Berkovic 2004 (family H-3,, child of H1)"
+early-infantile phenotype - benign,88,p.R1319Q,GOF,,,,,inherited,,3.5 months,,,,,,,6 years,Normal,,,,,,,,"Berkovic 2004 (family H-4, child of H-2)"
+early-infantile phenotype - benign,89,p.R1319Q,GOF,,,,,inherited,,4 months,,,,,,,9 years,Normal,,,,,,,,"Berkovic 2004 (family H-5, child of H-3)"
+early-infantile phenotype - severe,90,p.R1319Q,GOF,,,,,UK,,5 days,,,,,,,14 months,Delayed (severe),,,,,,,,Wolff 2017 (pt 31)
+early-infantile phenotype - intermediate,91,p.R1319Q,GOF,,,,,de novo,,2 months,,,,,,,3 years 10 months,Delayed (moderate),,,,,,,,Wolff 2017 (pt 36)
+early-infantile phenotype - intermediate,92,p.R1319Q,GOF,,,,,UK (presumed inherited from affected mother),,4 months,,,,,,,9 months,Motor delay (mild),,,,,,,,This study
+early-infantile phenotype - benign,93,p.R1319Q,GOF,,,,,inherited,,3.5 months,,,,,,,4 years,Normal,,,,,,,,This study
+later-onset phenotype - other childhood-onset epilepsy phenotype,94,p.R1435*,Presumed LOF,,,,,de novo,,2 years 11 months,,,,,,,n.a. (>2y11m),Delayed (moderate),,,,,,,,Trump 2016
+intellectual disability/autism spectrum disorder without epilepsy,95,p.R1435*,Presumed LOF,,,,,de novo,,No epilepsy,,,,,,,7 years 8 months,Delayed (severe),,,,,,,,Wolff 2017 (pt 68)
+early-infantile phenotype - severe,96,p.R1626Q,Presumed GOF,,,,,de novo,,UK (<2 months),,,,,,,2 months (deceased),n.a.,,,,,,,,Willig 2015
+early-infantile phenotype - severe,97,p.R1626Q,Presumed GOF,,,,,de novo (mosaic),,1 day,,,,,,,4 months,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - severe,98,p.R1629H,GOF,,,,,de novo,,6 days,,,,,,,8 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 32)
+early-infantile phenotype - intermediate,99,p.R1629H,GOF,,,,,UK,,3 days,,,,,,,2 years,Delayed (mild-mod),,,,,,,,Simons Foundation 16530-1
+early-infantile phenotype - benign,100,p.R1629H,GOF,,,,,UK,,1 day,,,,,,,n.a.,Normal,,,,,,,,Kong 2019 (pt 38)
+early-infantile phenotype - severe,101,p.R1629H,GOF,,,,,de novo,,1 month,,,,,,,n.a.,Delayed (severe),,,,,,,,Kong 2019 (pt 42)
+early-infantile phenotype - severe,102,p.#R1629L,GOF,,,,,UK,,3 days,,,,,,,4 months,Delayed (severe),,,,,,,,Nakamura 2013 (pt 255)
+early-infantile phenotype - intermediate,103,p.R1882G,Presumed GOF,,,,,de novo,,2 day,,,,,,,14 years,Speech delay (UK severity),,,,,,,,Schwarz 2016/Schwarz 2019 (pt 13)
+early-infantile phenotype - intermediate (normal development),104,p.R1882G,Presumed GOF,,,,,de novo,,1 month,,,,,,,12 years,Normal,,,,,,,,Schwarz 2016/Schwarz 2019 (pt 11)
+early-infantile phenotype - severe,105,p.R1882Q,GOF,,,,,de novo,,1 day,,,,,,,n.a.,Delayed (severe),,,,,,,,Trump 2016 (1)
+early-infantile phenotype - severe,106,p.R1882Q,GOF,,,,,de novo,,1 day,,,,,,,n.a.,Delayed (severe),,,,,,,,Trump 2016 (2)
+early-infantile phenotype - severe,107,p.R1882Q,GOF,,,,,UK,,1 day,,,,,,,10.5 years,Delayed (severe),,,,,,,,Wolff 2017
+early-infantile phenotype - severe,108,p.R1882Q,GOF,,,,,de novo,,1 day,,,,,,,21 months (deceased),Delayed (severe),,,,,,,,Carvill 2013/Howell 2015
+early-infantile phenotype - intermediate,109,p.R1882Q,GOF,,,,,de novo,,1 day,,,,,,,6 years,Delayed (moderate),,,,,,,,Howell 2015/Berecki 2018/Updated data
+early-infantile phenotype - severe,110,p.R1882Q,GOF,,,,,de novo,,1 day,,,,,,,5 years,Delayed (severe),,,,,,,,Berecki 2018
+early-infantile phenotype - severe,111,p.R1882Q,GOF,,,,,UK,,1 day,,,,,,,5 months,Delayed (severe),,,,,,,,Berecki 2018/Updated data
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,112,p.R220Q,Presumed LOF,,,,,de novo,,3 months,,,,,,,n.a. (>10 years),Delayed (UK severity),,,,,,,,Mercimek-Mahmutoglu 2015
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,113,p.R220Q,Presumed LOF,,,,,de novo,,5 months,,,,,,,15 years,Delayed (UK severity),,,,,,,,Costain 2019
+early-infantile phenotype - benign,114,p.R223Q,Presumed GOF,,,,,UK,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,115,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,116,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,117,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,118,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,119,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,120,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,121,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,122,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,123,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,124,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,125,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a.,n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,126,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a.,n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,127,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a.,n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,128,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a.,n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,129,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a.,n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,130,p.R223Q,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a.,n.a.,,,,,,,,Berkovic 2004
+early-infantile phenotype - benign,131,p.R36G,Presumed GOF,,,,,inherited (maternal),,16 months,,,,,,,3 years,Normal,,,,,,,,Wolff 2017 (pt 8)
+early-infantile phenotype - benign,132,p.R36G,Presumed GOF,,,,,inherited (maternal),,23 months,,,,,,,4 years 5 months,Normal,,,,,,,,Wolff 2017 (pt 9)
+early-infantile phenotype - benign,133,p.R36G,Presumed GOF,,,,,UK,,2 days,,,,,,,n.a.,n.a.,,,,,,,,Kong 2019 (pt 39)
+later-onset phenotype - Lennox-Gastaut syndrome/other childhood-onset developmental and epileptic encephalopathy,134,p.R853Q,LOF,,,,,de novo,,n.a.,,,,,,,n.a.,n.a.,,,,,,,,Allen 2013 (1)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,135,p.R853Q,LOF,,,,,de novo,,n.a.,,,,,,,n.a.,n.a.,,,,,,,,Allen 2013 (2)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,136,p.R853Q,LOF,,,,,de novo,,10 months,,,,,,,n.a (> 6 years),Delayed (severe),,,,,,,,Nakamura 2013/Kobayashi 2016
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,137,p.R853Q,LOF,,,,,de novo,,8 months,,,,,,,2 years,Delayed (severe),,,,,,,,Samanta 2015
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,138,p.R853Q,LOF,,,,,de novo,,8 months,,,,,,,6.5 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 46)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,139,p.R853Q,LOF,,,,,de novo,,13 months,,,,,,,8 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 50)
+later-onset phenotype - Lennox-Gastaut syndrome/other childhood-onset developmental and epileptic encephalopathy,140,p.R853Q,LOF,,,,,UK,,3 years,,,,,,,25 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 56)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,141,p.R853Q,LOF,,,,,de novo,,6 months,,,,,,,6 years,Delayed (severe),,,,,,,,Berecki 2018
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,142,p.R853Q,LOF,,,,,de novo,,8 months,,,,,,,7 years,Delayed (severe),,,,,,,,Berecki 2018/Updated data
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,143,p.R853Q,LOF,,,,,UK (parents NT),,6 months,,,,,,,12 years,Delayed (severe),,,,,,,,Berecki 2018
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,144,p.R853Q,LOF,,,,,de novo,,8 months,,,,,,,34 months,Delayed (severe),,,,,,,,This study
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,145,p.R853Q,LOF,,,,,de novo,,7 months,,,,,,,n.a.,Delayed (severe),,,,,,,,Kong 2019 (pt 41)
+later-onset phenotype - West syndrome/other infant-onset developmental and epileptic encephalopathy,146,p.R853Q,LOF,,,,,de novo,,6 months,,,,,,,9 years,Delayed (severe),,,,,,,,This study
+later-onset phenotype - Lennox-Gastaut syndrome/other childhood-onset developmental and epileptic encephalopathy,147,p.R853Q,LOF,,,,,de novo,,19 months,,,,,,,2 years,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - severe,148,p.R856Q,GOF,,,,,de novo,,2 days,,,,,,,3 months (deceased),n.a.,,,,,,,,Wolff 2017 (pt 21)
+early-infantile phenotype - severe,149,p.R856Q,GOF,,,,,de novo,,1 day,,,,,,,2 years (deceased),Delayed (severe),,,,,,,,This study
+intellectual disability/autism spectrum disorder without epilepsy,150,p.R937C,Presumed LOF,,,,,de novo,,No epilepsy,,,,,,,18 years,Delayed (moderate),,,,,,,,Rauch 2012 (pt ZH60991)
+intellectual disability/autism spectrum disorder without epilepsy,151,p.R937C,Presumed LOF,,,,,de novo,,No epilepsy,,,,,,,n.a.,Delayed (UK severity),,,,,,,,Li 2015
+intellectual disability/autism spectrum disorder without epilepsy,152,p.R937C,Presumed LOF,,,,,de novo,,No epilepsy,,,,,,,n.a.,Delayed (severe),,,,,,,,Iossifov 2014 (pt 14280)
+intellectual disability/autism spectrum disorder without epilepsy,153,p.R937C,Presumed LOF,,,,,de novo,,No epilepsy,,,,,,,3 years,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - severe,154,p.S1336Y,Presumed GOF,,,,,UK (presumed paternal gonadal mosaicism),,1 day,,,,,,,5 years,Delayed (severe),,,,,,,,Nakamura 2013 (pt 185)/Zerem 2014 (pt 1 - half brother of pt 2)
+early-infantile phenotype - severe,155,p.S1336Y,Presumed GOF,,,,,UK (presumed paternal gonadal mosaicism),,1 day,,,,,,,2 years,Delayed (severe),,,,,,,,Zerem 2014 (pt 2 - half brother of pt 1)
+early-infantile phenotype - severe,156,p.S987I,Presumed GOF,,,,,de novo,,1 day,,,,,,,n.a.,Delayed (severe),,,,,,,,Trump 2016
+early-infantile phenotype - intermediate (normal development),157,p.S987I,Presumed GOF,,,,,de novo,,1 day,,,,,,,11 years,Normal,,,,,,,,Schwarz 2019 (pt 1)
+early-infantile phenotype - intermediate (normal development),158,p.V1325I,GOF,,,,,UK,,6 weeks,,,,,,,19 years,Normal,,,,,,,,Schwarz 2019 (pt 6)
+early-infantile phenotype - intermediate (normal development),159,p.V1325I,GOF,,,,,de novo,,3 months,,,,,,,n.a. (adult),Normal,,,,,,,,This study
+early-infantile phenotype - severe,160,p.V1325I,GOF,,,,,"inherited (paternal, affected father)",,6 weeks,,,,,,,3 years,Delayed (severe),,,,,,,,This study
+early-infantile phenotype - benign,161,p.V208E,Presumed GOF,,,,,inherited,,3 months,,,,,,,35 years,Normal,,,,,,,,Lemke 2012 (pt 214)/Lauxmann 2018 (III.2)
+early-infantile phenotype - benign,162,p.V208E,Presumed GOF,,,,,inherited,,3 months (approx),,,,,,,n.a. (adult),Normal,,,,,,,,Lemke 2012/Lauxmann 2018 (III.5)
+early-infantile phenotype - benign,163,p.V208E,Presumed GOF,,,,,inherited,,4 months (approx),,,,,,,n.a.,Normal,,,,,,,,Lemke 2012/Lauxmann 2018 (III.6)
+early-infantile phenotype - benign,164,p.V208E,Presumed GOF,,,,,inherited,,5 months (approx),,,,,,,n.a.,Normal,,,,,,,,Lemke 2012/Lauxmann 2018 (IV.1)
+early-infantile phenotype - benign,165,p.V208E,Presumed GOF,,,,,inherited,,6 months (approx),,,,,,,n.a.,Normal,,,,,,,,Lemke 2012/Lauxmann 2018 (IV.2)
+early-infantile phenotype - intermediate (normal development),166,p.V261L,GOF,,,,,inherited,,3 days,,,,,,,8 years,Normal,,,,,,,,Mandelenaki 2019
+early-infantile phenotype - intermediate (normal development),167,p.V261L,GOF,,,,,UK,,neonatal,,,,,,,n.a. (adult),Normal,,,,,,,,Mandelenaki 2020
+early-infantile phenotype - benign,168,p.V261M,Presumed GOF,,,,,de novo,,9 days,,,,,,,20 months,Normal,,,,,,,,Wolff 2017 (pt 7)
+early-infantile phenotype - severe,169,p.V261M,Presumed GOF,,,,,de novo,,4 days,,,,,,,n.a.,Delayed (severe),,,,,,,,Kong 2019 (pt 36)
+early-infantile phenotype - benign,170,p.V261M,Presumed GOF,,,,,de novo,,1 day,,,,,,,7 years,Normal,,,,,,,,Liao 2010
+early-infantile phenotype - severe,171,p.V423L,Presumed GOF,,,,,de novo,,1 day,,,,,,,34 months (deceased),Delayed (severe),,,,,,,,Wolff 2017 (pt 10)
+early-infantile phenotype - severe,172,p.V423L,Presumed GOF,,,,,de novo,,6 days,,,,,,,4 years,Delayed (severe),,,,,,,,Wolff 2017 (pt 33)
+early-infantile phenotype - benign,173,p.Y1589C,Presumed GOF,,,,,inherited,,3 months,,,,,,,n.a. (adult),Normal,,,,,,,,Lauxmann 2013 (II.1)
+early-infantile phenotype - benign,174,p.Y1589C,Presumed GOF,,,,,inherited,,<9 months (>3 months),,,,,,,n.a. (adult),Normal,,,,,,,,Lauxmann 2013 (II.3)
+early-infantile phenotype - benign,175,p.Y1589C,Presumed GOF,,,,,inherited,,<6 months (>3 months),,,,,,,n.a. (adult),Normal,,,,,,,,Lauxmann 2013 (II.5)
+Unaffected (early-infantile phenotype family),176,p.Y1589C,Presumed GOF,,,,,inherited,,Unaffected,,,,,,,n.a. (adult),Normal,,,,,,,,Lauxmann 2013 (II.6)
+early-infantile phenotype - benign,177,p.Y1589C,Presumed GOF,,,,,inherited,,4 months,,,,,,,n.a. (adult),Normal,,,,,,,,Lauxmann 2013 (III.2)
+early-infantile phenotype - benign,178,p.Y1589C,Presumed GOF,,,,,inherited,,3.5 months,,,,,,,n.a.,Normal,,,,,,,,Lauxmann 2013 (III.6)
+early-infantile phenotype - benign,179,p.Y1589C,Presumed GOF,,,,,inherited,,5 months,,,,,,,n.a.,Normal,,,,,,,,Lauxmann 2013 (III.7)
+early-infantile phenotype - benign,180,p.Y1589C,Presumed GOF,,,,,inherited,,4.5 months,,,,,,,n.a.,Normal,,,,,,,,Lauxmann 2013 (III.12)
+early-infantile phenotype - benign,181,p.Y1589C,Presumed GOF,,,,,inherited,,4 months,,,,,,,n.a.,Normal,,,,,,,,Lauxmann 2013 (IV.3)
