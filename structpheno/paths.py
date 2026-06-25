@@ -61,3 +61,13 @@ def alphafold_pdb_path(gene: str, uniprot_id: str, version: int = 6) -> Path:
 def report_json_path(gene: str) -> Path:
     """Return the canonical combined report JSON path."""
     return source_dir("reports", gene) / "report.json"
+
+
+def gnomad_variants_path(gene: str) -> Path:
+    """Return the canonical cached gnomAD variant-level CSV path."""
+    return source_dir("gnomad", gene) / "variants.csv"
+
+
+def rvas_input_path(gene: str) -> Path:
+    """Return the canonical structure-informed-rvas case/control input TSV path."""
+    return source_dir("rvas_input", gene) / "clinvar_gnomad.tsv"
