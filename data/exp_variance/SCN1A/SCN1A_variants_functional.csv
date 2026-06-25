@@ -1,0 +1,34 @@
+protein_change,cdna,location,phenotype,patient,function_call,function_basis,funNCion_prediction,CADD,REVEL,gnomAD,ACMG_significance,reference
+p.T162I,c.485C>T,D1S2,NDEEMA,1,GOF,Inferred,N/A (training cohort),28.7,0.964,Absent,LP,This study
+p.S228P,c.682T>C,D1S4,NDEEMA,2,GOF,Inferred,N/A (training cohort),28.1,0.957,Absent,LP,Spagnoli (2019)
+p.V229L,c.685G>C,D1S4,NDEEMA,3,GOF,Inferred,GOF (70%),27.6,0.824,Absent,LP,This study
+p.I236V,c.706A>G,D1S4-5 linker,NDEEMA,4,GOF,This study (patch-clamp),GOF (83%),25.6,0.813,Absent,P,This study
+p.I236T,c.707T>C,D1S4-5 linker,NDEEMA (AMC; deceased),5,GOF,Inferred,GOF (81%),27.2,0.975,Absent,LP,Jaber (2020)
+p.L247V,c.739C>G,D1S4-5 linker,NDEEMA,6,GOF,Inferred,GOF (75%),24.8,0.949,Absent,LP,This study
+p.I883T,c.2648T>C,D2S4-5 linker,NDEEMA,7,GOF,Inferred,GOF (85%),24.9,0.982,Absent,LP,This study
+p.L893F,c.2679A>C,D2S5,NDEEMA,8,GOF,Inferred,GOF (75%),14.73,0.801,Absent,LP,Jaber (2020)
+p.A989T,c.2965G>A,D2S6,NDEEMA (AMC; deceased),9,GOF,Inferred,GOF (74%),29.4,0.962,Absent,LP,Jaber (2020)
+p.A1339D,c.4016C>A,D3S4-5 linker,NDEEMA,10,GOF,Inferred,GOF (69%),28.7,0.97,Absent,LP,This study
+p.P1345L,c.4034C>T,D3S4-5 linker,NDEEMA,11,GOF,Inferred,GOF (82%),29.4,0.962,Absent,LP,Trump (2016)
+p.S1346P,c.4036T>C,D3S4-5 linker,NDEEMA,12,GOF,Inferred,GOF (69%),27.6,0.96,Absent,LP,This study
+p.I1347V,c.4039A>G,D3S5,NDEEMA,13,GOF,Inferred,GOF (82%),25.1,0.889,Absent,LP,This study
+p.T226M,c.677C>T,D1S4,EIDEE/MD,14-23,GOF/Mixed,Berecki (2019; patch-clamp),N/A (training cohort),27.2,0.917,Absent,P,Berecki (2019)
+p.A420V,c.1259C>T,D1S6,EIDEE/MD,24,GOF,Inferred,N/A (training cohort),28.7,0.95,Absent,LP,This study
+p.V422L,c.1264G>T,D1-2 linker,EIDEE/MD,25,GOF,Inferred,GOF (94%),26.8,0.885,Absent,LP,Ohashi (2014)
+p.P1345S,c.4033C>T,D3S4-5 linker,EIDEE/MD,26,GOF,Inferred,GOF (77%),26.9,0.939,Absent,LP,Sadleir (2017)
+p.I1483M,c.4449A>G,D3-4 linker,EIDEE/MD,28,GOF,Inferred,GOF (91%),23.4,0.841,Absent,LP,This study
+p.I1498T,c.4493T>C,D3-4 linker,EIDEE/MD,29,GOF,This study (patch-clamp),GOF (89%),26,0.9,Absent,P,This study
+p.R1636Q,c.4907G>A,D4S4,EIDEE/MD,30-34,GOF,This study (patch-clamp),N/A (training cohort),31,0.96,Absent,P,This study
+p.A1669E,c.5006C>A,D4S4-5 linker,EIDEE/MD,35,GOF,Inferred,GOF (80%),24.5,0.942,Absent,LP,Estacion (2008)/Ruhlmann (2020)
+p.V1481I,c.4441G>A,D3-4 linker,DEE,27,GOF,Inferred,GOF (96%),26.3,0.893,Absent,LP,This study
+p.L263V,c.787C>G,D1S5,FHM3,36,GOF,Kahlig (2008; patch-clamp),N/A (training cohort),22.9,0.772,Absent,P,Kahlig (2008)
+p.Q1489K,c.4465C>A,D3-4 linker,FHM3,37,GOF,Kahlig/Cestele,N/A (training cohort),26.9,0.936,Absent,P,Kahlig (2008); Cestele (2008)
+p.Q1489H,c.4467G>C,D3-4 linker,FHM3,38,GOF,Barbieri (2019),N/A (training cohort),23,0.777,Absent,P,Barbieri (2019)
+p.I1498M,c.4494C>G,D3-4 linker,FHM3,39,GOF,This study (patch-clamp),N/A (training cohort),26.8,0.579,Absent,P,This study/Barbieri (2019)
+p.F1499L,c.4495T>C,D3-4 linker,FHM3,40,GOF,Barbieri (2019),N/A (training cohort),27.6,0.898,Absent,P,Barbieri (2019)
+p.M1500V,c.4498A>G,D3-4 linker,FHM3,41,GOF,Barbieri (2019),N/A (training cohort),24.2,0.883,Absent,P,Barbieri (2019)
+p.L1624P,c.4871T>C,D4S3-4 linker,FHM3,42,GOF,Fan (2016),N/A (training cohort),28.9,0.907,Absent,P,Fan (2016)
+p.L1649Q,c.4946T>A,D4S4,FHM3,43,GOF,Cestele/Vanmolkot,N/A (training cohort),27.8,0.985,Absent,P,Vanmolkot (2007)/Cestele (2013)
+p.F1661L,c.4981T>C,D4S4-5 linker,FHM3,44,GOF,Barbieri (2019),N/A (training cohort),28.5,0.975,Absent,P,Barbieri (2019)
+p.L1670W,c.5009T>G,D4S5,FHM3,45,GOF,Bertelli/Dhifallah,N/A (training cohort),24.5,0.95,Absent,P,Bertelli (2019)/Dhifallah (2018)
+p.F1774S,c.5321T>C,D4S6,FHM3,46,GOF,Bertelli (2019),GOF (75%),29.6,0.917,Absent,P,Bertelli (2019)
