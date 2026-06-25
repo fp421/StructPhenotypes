@@ -1,0 +1,32 @@
+{
+  "gene": "CACNA2A",
+  "source": "StructPhenotypes visualization preprocessing",
+  "annotation_version": 1,
+  "record_count": 0,
+  "residue_count": 0,
+  "phenotype_counts": {},
+  "phenotype_colors": {},
+  "pathogenic_labels": [
+    "Likely pathogenic",
+    "Pathogenic",
+    "Pathogenic/Likely pathogenic"
+  ],
+  "residues": {},
+  "residue_list": [],
+  "missense_predictions": {
+    "source": "stub_linear_by_residue_position",
+    "score_range": [
+      0.0,
+      1.0
+    ],
+    "by_residue": {}
+  },
+  "alphafold_confidence": {
+    "source": "none",
+    "score_range": [
+      0.0,
+      100.0
+    ],
+    "by_residue": {}
+  }
+}
