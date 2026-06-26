@@ -15,9 +15,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
+
+# Matches the residue number in an HGVS protein change, e.g. 'p.Trp932Arg' -> 932.
+_TITLE_RESIDUE_RE = re.compile(r"p\.[A-Za-z]{3}(\d+)[A-Za-z]{3}")
+
+
+def _title_residue(record: dict):
+    """Residue number from the ClinVar title's HGVS.p (canonical transcript).
+
+    Preferred over the record's ``residue`` field, which for multi-isoform genes
+    can hold the first of several isoform-specific positions (e.g. SCN1A reports
+    118 for a variant the title calls Trp932Arg). The title residue matches the
+    reference's DNA->canonical mapping; falls back to ``residue`` if unparseable.
+    """
+    m = _TITLE_RESIDUE_RE.search(record.get("title") or "")
+    return int(m.group(1)) if m else record.get("residue")
 
 try:
     from .paths import clinvar_json_path, gnomad_variants_path, rvas_input_path
@@ -87,7 +103,7 @@ def build_cases(clinvar_path: Path, significance: set[str]) -> pd.DataFrame:
                 "alt": alt,
                 "ac_case": 1,
                 "ac_control": 0,
-                "clinvar_residue": r.get("residue"),  # for downstream QC
+                "clinvar_residue": _title_residue(r),  # canonical, for downstream QC
             }
         )
     df = pd.DataFrame(rows)
