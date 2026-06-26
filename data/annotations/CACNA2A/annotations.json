@@ -1,7 +1,7 @@
 {
   "gene": "CACNA2A",
   "source": "StructPhenotypes visualization preprocessing",
-  "annotation_version": 6,
+  "annotation_version": 9,
   "record_count": 0,
   "residue_count": 0,
   "phenotype_counts": {},
@@ -29,7 +29,7 @@
     "source_counts": {}
   },
   "missense_predictions": {
-    "source": "stub_linear_by_residue_position",
+    "source": "none",
     "score_range": [
       0.0,
       1.0

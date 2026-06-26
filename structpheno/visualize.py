@@ -246,7 +246,7 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "gene": gene,
         "source": "StructPhenotypes visualization preprocessing",
-        "annotation_version": 6,
+        "annotation_version": 9,
         "record_count": len(records),
         "residue_count": len(residues),
         "phenotype_counts": dict(phenotype_counts),
@@ -328,7 +328,11 @@ def _annotation_cache_is_usable(annotations: dict[str, Any], report: dict[str, A
     cached_gene = str(annotations.get("gene", "unknown")).upper()
     if cached_gene != expected_gene:
         return False
-    if int(annotations.get("annotation_version", 0)) < 6:
+    if int(annotations.get("annotation_version", 0)) < 9:
+        return False
+
+    expected_record_count = len(_extract_clinvar_records(report))
+    if int(annotations.get("record_count", -1)) != expected_record_count:
         return False
 
     if _source_has_data(report, "alpha_missense"):
@@ -3282,9 +3286,11 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       function surfaceType(){var s=id("renderStyle").value,t="VDW"; if(s==="surface-ms"){t="MS";} if(s==="surface-sas"||s==="surface-smooth"){t="SAS";} if(s==="surface-ses"){t="SES";} if(window.$3Dmol&&$3Dmol.SurfaceType&&$3Dmol.SurfaceType[t]){return $3Dmol.SurfaceType[t];} return window.$3Dmol&&$3Dmol.SurfaceType?$3Dmol.SurfaceType.VDW:null;}
       function addSurface(c,o){var st=surfaceType(),smooth=id("renderStyle").value==="surface-smooth",alpha;if(!st){return;} alpha=smooth?Math.max(.25,Math.min(.85,o)):Math.max(.08,Math.min(.9,o)); viewer.addSurface(st,{color:c,opacity:alpha,transparent:alpha<1},{}); if(!smooth){viewer.setStyle({},{line:{color:"#aeb8c2",opacity:Math.min(.14,o)}});}}
       function paintResidue(res,c,o){if(isSurface()){sphere(res,c,.34,0,1);}else{viewer.setStyle({resi:res},style(c,o,.12));}}
-      function draw(){evalRows(); summary(); list(); if(!viewer){return;} var mode=id("baseColorMode").value,o=op(),r=rs(),i,c; if(viewer.removeAllShapes){viewer.removeAllShapes();} if(viewer.removeAllSurfaces){viewer.removeAllSurfaces();} viewer.setStyle({},{}); if(isSurface()){addSurface("#d9d9d9",o);}else{viewer.setStyle({},style(mode==="default"?"spectrum":"#d9d9d9",o,.12));} for(i=0;i<r.length;i++){c=null; if(mode==="missense-gradient"&&r[i].missense){c=r[i].missense.color||score(r[i].missense.score);} if(mode==="missense-class"&&r[i].missense){c=miss(r[i].missense["class"]);} if(mode==="alphafold-confidence"&&r[i].alphafold_confidence){c=r[i].alphafold_confidence.color;} if(mode==="clinvar-pathogenicity"){c=pathColor(path(r[i]));} if(mode==="surprise"){c=surprise(r[i]);} if(c){paintResidue(r[i].residue,c,o);}} markers(); focus(); viewer.render();}
+      function draw(){evalRows(); summary(); list(); if(!viewer){return;} var mode=id("baseColorMode").value,o=op(),r=rs(),i,c; if(viewer.removeAllShapes){viewer.removeAllShapes();} if(viewer.removeAllSurfaces){viewer.removeAllSurfaces();} viewer.setStyle({},{}); if(isSurface()){addSurface("#d9d9d9",o);}else{viewer.setStyle({},style(mode==="default"?"spectrum":"#d9d9d9",o,.12));} for(i=0;i<r.length;i++){c=null; if(mode==="missense-gradient"&&r[i].missense){c=r[i].missense.color||score(r[i].missense.score);} if(mode==="missense-class"&&r[i].missense){c=miss(r[i].missense["class"]);} if(mode==="alphafold-confidence"&&r[i].alphafold_confidence){c=r[i].alphafold_confidence.color;} if(mode==="clinvar-pathogenicity"){c=pathColor(path(r[i]));} if(mode==="surprise"){c=surprise(r[i]);} if(c){paintResidue(r[i].residue,c,o);}} if(mode==="clinvar-pathogenicity"){clinvarClassMarkers(r);} markers(); focus(); viewer.render();}
       function center(res){var k=String(res),a,i,c; if(centers.hasOwnProperty(k)){return centers[k];} if(!model||!model.selectedAtoms){return null;} a=model.selectedAtoms({resi:res})||[]; if(!a.length){centers[k]=null; return null;} for(i=0;i<a.length;i++){if(String(a[i].atom||"").toUpperCase()==="CA"){c={x:+a[i].x||0,y:+a[i].y||0,z:+a[i].z||0}; centers[k]=c; return c;}} c={x:0,y:0,z:0}; for(i=0;i<a.length;i++){c.x+=+a[i].x||0; c.y+=+a[i].y||0; c.z+=+a[i].z||0;} c.x/=a.length; c.y/=a.length; c.z/=a.length; centers[k]=c; return c;}
       function sphere(res,c,rad,idx,total){var p=center(res),ang,ring; if(!p){return;} if(total>1){ang=2*Math.PI*idx/total; ring=Math.max(rad*.9,.22); p={x:p.x+ring*Math.cos(ang),y:p.y+ring*Math.sin(ang),z:p.z};} viewer.addSphere({center:p,color:c,radius:rad,opacity:1});}
+      function clinvarClassMarkers(r){var i,j,classes; for(i=0;i<r.length;i++){classes=clinvarClasses(r[i]); if(classes.length<2){continue;} for(j=0;j<classes.length;j++){sphere(r[i].residue,pathColor(classes[j]),.24,j,classes.length);}}}
+      function clinvarClasses(a){var counts=a.significance_counts||{},seen={},out=[],label,key; for(label in counts){if(counts.hasOwnProperty(label)&&counts[label]>0){key=significanceClass(label); if(key&&!seen[key]){seen[key]=true; out.push(key);}}} out.sort(function(x,y){return rank(y)-rank(x);}); return out;}
       function markers(){var g={},i,j,r,res; for(i=0;i<rows.length;i++){r=rows[i]; if(!r.en||r.ph||r.err){continue;} for(j=0;j<r.m.length;j++){res=r.m[j]; g[res]=g[res]||[]; g[res].push(r);}} for(res in g){if(g.hasOwnProperty(res)){for(i=0;i<g[res].length;i++){sphere(+res,g[res][i].color,Math.max(.18,g[res][i].size*.16),i,g[res].length);}}}}
       function focus(){var res=Number(id("focusResidue").value); if(res){sphere(res,"#2459d6",.62,0,1); viewer.zoomTo({resi:res});}}
       function evalRows(){var r=rs(),i,j; for(i=0;i<rows.length;i++){rows[i].m=[]; rows[i].err=""; if(rows[i].ph||!rows[i].q.replace(/\s/g,"")){continue;} try{for(j=0;j<r.length;j++){if(match(rows[i].q,r[j])){rows[i].m.push(r[j].residue);}}}catch(e){rows[i].err=e.message||String(e);}}}
@@ -3297,7 +3303,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       function val(a,f){f=String(f).toLowerCase(); if(f==="residue"){return +a.residue;} if(f==="variant_count"){return +(a.variant_count||0);} if(f==="phenotype"){return a.phenotypes||[];} if(f==="primary_phenotype"){return a.primary_phenotype||null;} if(f==="primary_significance"){return a.primary_significance||null;} if(f==="pathogenicity_class"){return path(a);} if(f==="has_pathogenic"){return !!a.has_pathogenic;} if(f==="function_class"){return a.function_classes||[];} if(f==="missense_score"){return a.missense?+a.missense.score:null;} if(f==="missense_class"){return a.missense?a.missense["class"]:null;} if(f==="alphafold_score"){return a.alphafold_confidence?+a.alphafold_confidence.score:null;} if(f==="alphafold_class"){return a.alphafold_confidence?a.alphafold_confidence["class"]:null;} throw new Error("Unknown field '"+f+"'");}
       function contains(f,n){var i; n=String(n).toLowerCase(); if(Object.prototype.toString.call(f)==="[object Array]"){for(i=0;i<f.length;i++){if(String(f[i]).toLowerCase().indexOf(n)!==-1){return true;}} return false;} return String(f||"").toLowerCase().indexOf(n)!==-1;}
       function eq(f,x){var i; if(Object.prototype.toString.call(f)==="[object Array]"){for(i=0;i<f.length;i++){if(eq(f[i],x)){return true;}} return false;} if(!isNaN(Number(f))&&!isNaN(Number(x))){return Number(f)===Number(x);} return String(f).toLowerCase()===String(x).toLowerCase();} function cmp(f,op,x){if(op==="="){return eq(f,x);} if(op==="!="){return !eq(f,x);} f=Number(f); x=Number(x); if(!isFinite(f)||!isFinite(x)){return false;} if(op==="<"){return f<x;} if(op==="<="){return f<=x;} if(op===">"){return f>x;} if(op===">="){return f>=x;} return false;}
-      function path(a){var s=+(a.max_pathogenicity||0); if(!(+(a.variant_count||0))){return null;} if(a.pathogenicity_class){return a.pathogenicity_class;} if(s>=4){return "pathogenic";} if(s===3){return "likely-pathogenic";} if(s===2){return "uncertain";} return "benign";} function pathColor(c){if(c==="pathogenic"){return "#b2182b";} if(c==="likely-pathogenic"){return "#ef8a62";} if(c==="uncertain"){return "#fddbc7";} if(c==="benign"){return "#d1e5f0";} return "#d9d9d9";} function miss(c){c=String(c||"").toLowerCase(); if(c==="benign"){return "#2ca25f";} if(c==="pathogenic"){return "#d73027";} if(c==="ambiguous"){return "#fee08b";} return "#9ca3af";} function score(s){var v=Math.max(0,Math.min(1,+s||0)); return "rgb("+Math.round(43+172*v)+", "+Math.round(131-106*v)+", "+Math.round(186-158*v)+")";} function surprise(a){var s=a.missense?+a.missense.score:NaN,p=+(a.max_pathogenicity||0); if(!isFinite(s)){return null;} if(p>=3&&s<=.35){return "#7b3294";} if(p<=1&&+(a.variant_count||0)>0&&s>=.75){return "#008837";} if(p===2&&s>=.75){return "#fdae61";} return null;}
+      function path(a){var s=+(a.max_pathogenicity||0); if(!(+(a.variant_count||0))){return null;} if(a.pathogenicity_class){return a.pathogenicity_class;} if(s>=4){return "pathogenic";} if(s===3){return "likely-pathogenic";} if(s===2){return "uncertain";} return "benign";} function significanceClass(x){x=String(x||"").toLowerCase(); if(x.indexOf("pathogenic/likely pathogenic")!==-1){return "pathogenic";} if(x.indexOf("pathogenic")!==-1&&x.indexOf("likely")===-1&&x.indexOf("conflicting")===-1){return "pathogenic";} if(x.indexOf("likely pathogenic")!==-1){return "likely-pathogenic";} if(x.indexOf("uncertain")!==-1||x.indexOf("conflicting")!==-1){return "uncertain";} if(x.indexOf("benign")!==-1){return "benign";} return null;} function rank(c){if(c==="pathogenic"){return 4;} if(c==="likely-pathogenic"){return 3;} if(c==="uncertain"){return 2;} if(c==="benign"){return 1;} return 0;} function pathColor(c){if(c==="pathogenic"){return "#b2182b";} if(c==="likely-pathogenic"){return "#ef8a62";} if(c==="uncertain"){return "#fddbc7";} if(c==="benign"){return "#d1e5f0";} return "#d9d9d9";} function miss(c){c=String(c||"").toLowerCase(); if(c==="benign"){return "#2ca25f";} if(c==="pathogenic"){return "#d73027";} if(c==="ambiguous"){return "#fee08b";} return "#9ca3af";} function score(s){var v=Math.max(0,Math.min(1,+s||0)); return "rgb("+Math.round(43+172*v)+", "+Math.round(131-106*v)+", "+Math.round(186-158*v)+")";} function surprise(a){var s=a.missense?+a.missense.score:NaN,p=+(a.max_pathogenicity||0); if(!isFinite(s)){return null;} if(p>=3&&s<=.35){return "#7b3294";} if(p<=1&&+(a.variant_count||0)>0&&s>=.75){return "#008837";} if(p===2&&s>=.75){return "#fdae61";} return null;}
       function docs(){id("queryExamples").innerHTML='<p class="legend-note">Queries are residue-level WHERE-style expressions. Strings may be quoted, but simple hyphenated values can be typed directly.</p><p class="legend-note"><strong>Set logic:</strong> OR is union, AND is intersection, NOT is negation; parentheses can group boolean clauses.</p><p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p><p class="legend-note"><strong>Operators:</strong> =, !=, &lt;, &lt;=, &gt;, &gt;=, IN (...), BETWEEN ... AND ..., CONTAINS.</p><code>all</code><code>residue IN (42, 43, 44)</code><code>residue BETWEEN 100 AND 120</code><code>function_class = gain-of-function</code><code>NOT function_class IN (gain-of-function, loss-of-function)</code><code>phenotype CONTAINS epileptic AND pathogenicity_class = pathogenic</code>';}
       function summary(){var u={},a=0,b=0,i,j,r; for(i=0;i<rows.length;i++){r=rows[i]; if(r.err){b++;} if(!r.en||r.ph||r.err){continue;} a++; for(j=0;j<r.m.length;j++){u[r.m[j]]=true;}} id("diseaseStats").innerHTML='<div class="stats-grid"><div class="stat"><strong>'+a+'</strong><span>active query rows</span></div><div class="stat"><strong>'+Object.keys(u).length+'</strong><span>unique matched residues</span></div><div class="stat"><strong>'+rs().length+'</strong><span>total residues</span></div><div class="stat"><strong>'+b+'</strong><span>invalid queries</span></div></div>';}
       function list(){var r=rs(),h="",i,n=Math.min(80,r.length); for(i=0;i<n;i++){h+="<li>Residue "+r[i].residue+": "+esc(r[i].primary_significance||"annotated")+", "+esc(r[i].primary_phenotype||"no phenotype")+"</li>";} id("variantList").innerHTML=h;}
@@ -3550,7 +3556,6 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
 
     by_variant: dict[str, dict[str, Any]] = {}
     by_residue: dict[str, dict[str, Any]] = {}
-    class_counts: Counter[str] = Counter()
     source_counts: Counter[str] = Counter()
     patient_row_count = 0
 
@@ -3580,8 +3585,6 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
             entry["function_calls"].add(call_label)
         entry["patient_count"] += 1
         source_counts[source_label or "unknown"] += 1
-        for function_class in function_classes:
-            class_counts[function_class] += 1
         if resolved_residue is not None:
             residue_entry = by_residue.setdefault(
                 str(resolved_residue),
@@ -3589,7 +3592,7 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
                     "function_classes": set(),
                     "function_calls": set(),
                     "variant_keys": set(),
-                    "function_class_counts": Counter(),
+                    "function_class_variant_keys": defaultdict(set),
                 },
             )
             residue_entry["function_classes"].update(function_classes)
@@ -3597,7 +3600,7 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
             if call_label:
                 residue_entry["function_calls"].add(call_label)
             for function_class in function_classes:
-                residue_entry["function_class_counts"][function_class] += 1
+                residue_entry["function_class_variant_keys"][function_class].add(variant_key)
         return True
 
     exp_variance_path = _exp_variance_patient_data_path(normalized_gene)
@@ -3646,12 +3649,19 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
                     dx = str(row.get("dx") or "").strip()
                     if dx not in {"Dravet", "GEFS+"}:
                         continue
+                    if str(row.get("type") or "").strip() != "PTV":
+                        continue
                     add_call(
                         variant=row.get("protein_change"),
                         residue=row.get("residue_canonical") or row.get("residue"),
-                        function_call=f"{dx} inferred LOF",
+                        function_call=f"{dx} PTV inferred LOF",
                         source_label="brunklaus_dravet_gefs",
                     )
+
+    class_counts: Counter[str] = Counter()
+    for value in by_variant.values():
+        for function_class in value["function_classes"]:
+            class_counts[function_class] += 1
 
     return {
         "source": "combined_experimental_function_data",
@@ -3674,7 +3684,10 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
             key: {
                 "function_classes": sorted(value["function_classes"]),
                 "function_calls": sorted(value["function_calls"]),
-                "function_class_counts": dict(value["function_class_counts"]),
+                "function_class_counts": {
+                    function_class: len(variant_keys)
+                    for function_class, variant_keys in value["function_class_variant_keys"].items()
+                },
                 "variant_keys": sorted(value["variant_keys"]),
             }
             for key, value in by_residue.items()
@@ -3792,22 +3805,7 @@ def _build_missense_gradient(
     if real_predictions:
         return real_predictions, "alphamissense"
 
-    residues = sorted(records_by_residue)
-    if not residues:
-        return {}, "stub_linear_by_residue_position"
-
-    minimum = residues[0]
-    maximum = residues[-1]
-    span = max(maximum - minimum, 1)
-    return {
-        str(residue): {
-            "residue": residue,
-            "score": round((residue - minimum) / span, 4),
-            "class": "stub",
-            "color": _score_to_color((residue - minimum) / span),
-        }
-        for residue in residues
-    }, "stub_linear_by_residue_position"
+    return {}, "none"
 
 
 def _extract_missense_predictions(report: dict[str, Any]) -> dict[str, dict[str, Any]]:

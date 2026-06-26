@@ -57,6 +57,8 @@ class ClinVarRetriever:
         tool: str = "StructPhenotypes",
         retmax: int = 500,
         single_gene: bool = False,
+        chromosome: str | None = None,
+        chrpos38: tuple[int, int] | None = None,
         request_delay: float | None = None,
         timeout: int = 60,
     ) -> None:
@@ -74,6 +76,8 @@ class ClinVarRetriever:
                 wrongly excludes a contiguous span of real coding variants — for
                 SCN1A it removed 2776 of 5370 records, including Dravet variants like
                 R1648H.
+            chromosome: Optional chromosome filter for ClinVar ESearch.
+            chrpos38: Optional GRCh38 coordinate range filter, as ``(start, end)``.
             request_delay: Delay between API calls. Defaults to NCBI-safe timing.
             timeout: Request timeout in seconds.
         """
@@ -83,6 +87,8 @@ class ClinVarRetriever:
         self.tool = tool
         self.retmax = retmax
         self.single_gene = single_gene
+        self.chromosome = chromosome
+        self.chrpos38 = chrpos38
         self.timeout = timeout
         self.session = requests.Session()
         self.request_delay = request_delay if request_delay is not None else self._default_request_delay()
@@ -201,10 +207,25 @@ class ClinVarRetriever:
         return summaries
 
     def _search_term(self) -> str:
-        term = f"{self.gene}[gene]"
+        terms = [f"{self.gene}[gene]"]
         if self.single_gene:
-            term += " AND single_gene[prop]"
-        return term
+            terms.append("single_gene[prop]")
+        if self.chromosome:
+            terms.append(f"{self.chromosome}[chr]")
+        if self.chrpos38:
+            start, end = self.chrpos38
+            terms.append(f"{start}:{end}[chrpos38]")
+        return " AND ".join(terms)
+
+    def query_metadata(self) -> dict[str, Any]:
+        """Return the ClinVar ESearch query settings used for this retriever."""
+        return {
+            "term": self._search_term(),
+            "single_gene": self.single_gene,
+            "chromosome": self.chromosome,
+            "chrpos38": list(self.chrpos38) if self.chrpos38 else None,
+            "consequence_filtering": "downstream",
+        }
 
     def _request_json(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         request_params = {
@@ -269,6 +290,7 @@ class ClinVarRetriever:
         payload = {
             "gene": self.gene,
             "source": "ClinVar",
+            "query": self.query_metadata(),
             "record_count": len(records),
             "records": records,
         }
@@ -338,29 +360,70 @@ class ClinVarRetriever:
 
     @staticmethod
     def _parse_protein_change(protein_change: str, title: str) -> dict[str, Any]:
-        parsed = {
+        title_parts = ClinVarRetriever._parse_title_protein_change(title)
+        if title_parts["residue"] is not None:
+            return title_parts
+
+        return ClinVarRetriever._parse_one_letter_protein_change(protein_change)
+
+    @staticmethod
+    def _empty_protein_parts() -> dict[str, Any]:
+        return {
             "reference_amino_acid": None,
             "alternate_amino_acid": None,
             "residue": None,
         }
 
-        # Prefer the title's HGVS.p, which uses ClinVar's representative
-        # transcript and matches the canonical protein numbering. The
-        # protein_change field can list several isoform-specific changes
-        # (e.g. "W118R, W903R, ..., W932R"); a plain search there would grab
-        # the first (118) rather than the canonical one (932).
-        three_letter_match = re.search(
-            r"p\.\(?(?P<ref>[A-Z][a-z]{2})(?P<pos>\d+)(?P<alt>[A-Z][a-z]{2}|Ter|fs|del|dup|ins|=)?\)?",
-            title,
-        )
+    @staticmethod
+    def _parse_title_protein_change(title: str) -> dict[str, Any]:
+        parsed = ClinVarRetriever._empty_protein_parts()
+
+        title_match = re.search(r"\(p\.\(?(?P<change>[^)]+?)\)?\)", title)
+        if not title_match:
+            return parsed
+
+        change = title_match.group("change")
+        three_letter_match = re.match(r"(?P<ref>[A-Z][a-z]{2})(?P<pos>\d+)", change)
         if three_letter_match:
             parsed["reference_amino_acid"] = THREE_TO_ONE_AA.get(three_letter_match.group("ref"))
-            alt = three_letter_match.group("alt")
-            parsed["alternate_amino_acid"] = THREE_TO_ONE_AA.get(alt, alt) if alt else None
+            parsed["alternate_amino_acid"] = ClinVarRetriever._parse_hgvs_alt(
+                change[three_letter_match.end() :]
+            )
             parsed["residue"] = int(three_letter_match.group("pos"))
             return parsed
 
-        # Fall back to protein_change only when the title lacks an HGVS.p.
+        one_letter_match = re.match(
+            r"(?P<ref>[A-Z*])(?P<pos>\d+)(?P<alt>[A-Z*]|fs|del|dup|ins|=)?",
+            change,
+        )
+        if one_letter_match:
+            parsed["reference_amino_acid"] = one_letter_match.group("ref")
+            parsed["alternate_amino_acid"] = one_letter_match.group("alt")
+            parsed["residue"] = int(one_letter_match.group("pos"))
+
+        return parsed
+
+    @staticmethod
+    def _parse_hgvs_alt(alt_text: str) -> str | None:
+        if not alt_text:
+            return None
+        if alt_text == "=":
+            return "="
+        if alt_text.startswith("Ter"):
+            return "*"
+        lower_alt = alt_text.lower()
+        for token in ("fs", "del", "dup", "ins"):
+            if token in lower_alt:
+                return token
+        three_letter_match = re.match(r"(?P<alt>[A-Z][a-z]{2})", alt_text)
+        if three_letter_match:
+            return THREE_TO_ONE_AA.get(three_letter_match.group("alt"), three_letter_match.group("alt"))
+        return alt_text
+
+    @staticmethod
+    def _parse_one_letter_protein_change(protein_change: str) -> dict[str, Any]:
+        parsed = ClinVarRetriever._empty_protein_parts()
+
         one_letter_match = re.search(
             r"(?P<ref>[A-Z*])(?P<pos>\d+)(?P<alt>[A-Z*]|fs|del|dup|ins|=)?",
             protein_change,
@@ -369,6 +432,7 @@ class ClinVarRetriever:
             parsed["reference_amino_acid"] = one_letter_match.group("ref")
             parsed["alternate_amino_acid"] = one_letter_match.group("alt")
             parsed["residue"] = int(one_letter_match.group("pos"))
+            return parsed
 
         return parsed
 
