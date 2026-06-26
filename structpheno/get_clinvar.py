@@ -56,7 +56,7 @@ class ClinVarRetriever:
         api_key: str | None = None,
         tool: str = "StructPhenotypes",
         retmax: int = 500,
-        single_gene: bool = True,
+        single_gene: bool = False,
         request_delay: float | None = None,
         timeout: int = 60,
     ) -> None:
@@ -68,7 +68,12 @@ class ClinVarRetriever:
             api_key: Optional NCBI API key. Defaults to ``NCBI_API_KEY``.
             tool: Tool name sent to NCBI.
             retmax: Number of IDs to fetch per ESearch page.
-            single_gene: Restrict ClinVar search to records associated with one gene.
+            single_gene: Restrict the search with ``single_gene[prop]``. Defaults to
+                False: that filter drops variants ClinVar flags as multi-gene, which
+                for loci with an overlapping antisense gene (e.g. SCN1A / SCN1A-AS1)
+                wrongly excludes a contiguous span of real coding variants — for
+                SCN1A it removed 2776 of 5370 records, including Dravet variants like
+                R1648H.
             request_delay: Delay between API calls. Defaults to NCBI-safe timing.
             timeout: Request timeout in seconds.
         """
