@@ -246,7 +246,7 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "gene": gene,
         "source": "StructPhenotypes visualization preprocessing",
-        "annotation_version": 9,
+        "annotation_version": 11,
         "record_count": len(records),
         "residue_count": len(residues),
         "phenotype_counts": dict(phenotype_counts),
@@ -328,7 +328,7 @@ def _annotation_cache_is_usable(annotations: dict[str, Any], report: dict[str, A
     cached_gene = str(annotations.get("gene", "unknown")).upper()
     if cached_gene != expected_gene:
         return False
-    if int(annotations.get("annotation_version", 0)) < 9:
+    if int(annotations.get("annotation_version", 0)) < 11:
         return False
 
     expected_record_count = len(_extract_clinvar_records(report))
@@ -512,7 +512,9 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(260px, 0.55fr) minmax(320px, 1fr);
+      --legend-pane-width: 300px;
+      --control-pane-width: 460px;
+      grid-template-columns: minmax(0, 1fr) 8px minmax(240px, var(--legend-pane-width)) 8px minmax(360px, var(--control-pane-width));
       gap: 14px;
       padding: 16px 22px 24px;
       align-items: start;
@@ -534,6 +536,18 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     .control-pane {
       display: grid;
       gap: 14px;
+    }
+    .panel-resizer {
+      align-self: stretch;
+      min-height: calc(100vh - 210px);
+      border-radius: 999px;
+      background: linear-gradient(180deg, transparent, #d8dee8 18%, #d8dee8 82%, transparent);
+      cursor: col-resize;
+      touch-action: none;
+    }
+    .panel-resizer:hover,
+    .panel-resizer.is-dragging {
+      background: linear-gradient(180deg, transparent, #2563eb 18%, #2563eb 82%, transparent);
     }
     .panel {
       border: 1px solid var(--border);
@@ -583,7 +597,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
     .query-row-top {
       display: grid;
-      grid-template-columns: 20px 40px 84px minmax(0, 1fr) auto;
+      grid-template-columns: 20px 40px 84px minmax(140px, 1fr) minmax(88px, max-content);
       gap: 8px;
       align-items: center;
     }
@@ -609,6 +623,10 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       width: 100%;
       font-family: Consolas, "Courier New", monospace;
       font-size: 13px;
+    }
+    .query-row-top .pathogenicity-count {
+      min-width: 88px;
+      text-align: right;
     }
     .query-row-meta {
       display: flex;
@@ -661,6 +679,44 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       border: 1px solid #edf1f7;
       font-size: 12px;
       overflow-wrap: anywhere;
+    }
+    .query-doc-section {
+      margin-top: 8px;
+      display: grid;
+      gap: 6px;
+    }
+    .query-doc-item,
+    .query-doc-values {
+      padding: 7px 8px;
+      border-radius: 6px;
+      background: #f8fafc;
+      border: 1px solid #edf1f7;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .query-doc-item strong,
+    .query-doc-values strong,
+    .query-doc-values summary {
+      color: var(--ink);
+    }
+    .query-doc-values summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .query-doc-values code {
+      display: inline-block;
+      margin: 4px 4px 0 0;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      font-size: 11px;
+    }
+    .query-doc-scroll {
+      max-height: 150px;
+      overflow: auto;
+      padding-top: 3px;
     }
     .phenotype-row {
       display: grid;
@@ -821,6 +877,9 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         .workspace {
           grid-template-columns: 1fr;
         }
+        .panel-resizer {
+          display: none;
+        }
         .legend-pane {
           position: static;
           max-height: none;
@@ -897,10 +956,12 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       <div id="viewer"></div>
       <div id="status">Loading viewer...</div>
     </div>
+    <div id="legendPaneResizer" class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize color scale panel"></div>
     <aside class="legend-pane">
       <h2>Color Scale</h2>
       <div id="colorLegend"></div>
     </aside>
+    <div id="controlPaneResizer" class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize query panel"></div>
     <div class="control-pane">
       <div class="panel">
         <h2>Query Highlights</h2>
@@ -921,11 +982,13 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         <div id="queryExamples" class="query-examples">
           <p class="legend-note">Queries are residue-level WHERE-style expressions. Strings should be quoted.</p>
           <p class="legend-note">Use <strong>AND</strong> for intersection, <strong>OR</strong> for union, and <strong>NOT</strong> for negation.</p>
-          <p class="legend-note">Common fields: residue, phenotype, pathogenicity_class, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p>
+          <p class="legend-note">Common fields: residue, phenotype, pathogenicity_class, molecular_consequence, missense_pathogenicity_class, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p>
           <code>all</code>
           <code>residue IN (42, 43, 44)</code>
           <code>residue BETWEEN 100 AND 120</code>
           <code>function_class = 'gain-of-function'</code>
+          <code>pathogenicity_class CONTAINS 'pathogen' AND molecular_consequence CONTAINS 'missense'</code>
+          <code>missense_pathogenicity_class CONTAINS 'pathogen'</code>
           <code>NOT function_class IN ('gain-of-function', 'loss-of-function')</code>
           <code>phenotype CONTAINS 'epileptic' AND pathogenicity_class = 'pathogenic'</code>
         </div>
@@ -1181,15 +1244,86 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         `;
       }
 
+      function queryFieldDocumentationHtml() {
+        const fieldRows = [
+          ["all", "Special query that matches every residue in the structure."],
+          ["residue", "Numeric residue position, for exact matches, IN lists, or BETWEEN ranges."],
+          ["variant_count", "Number of ClinVar variant records aggregated onto that residue."],
+          ["primary_phenotype", "The most common non-generic phenotype label for the residue."],
+          ["phenotype", "Any phenotype label attached to any ClinVar record at the residue; use CONTAINS for partial text."],
+          ["primary_significance", "The highest-priority ClinVar clinical significance label at the residue."],
+          ["pathogenicity_class", "The strongest residue-level ClinVar class: pathogenic, likely-pathogenic, uncertain, or benign."],
+          ["has_pathogenic", "Boolean true when the residue has pathogenic or likely pathogenic ClinVar evidence."],
+          ["molecular_consequence", "Any ClinVar molecular consequence at the residue, such as missense variant."],
+          ["clinvar_consequence", "Alias for molecular_consequence."],
+          ["missense_pathogenicity_class", "ClinVar pathogenicity classes contributed only by records whose consequence is missense."],
+          ["clinvar_missense_pathogenicity_class", "Alias for missense_pathogenicity_class."],
+          ["function_class", "Experimental functional call at the residue: gain-of-function or loss-of-function when known."],
+          ["missense_score", "Numeric AlphaMissense pathogenicity score from 0 to 1; absent scores fail numeric comparisons."],
+          ["missense_class", "AlphaMissense class: benign, ambiguous, pathogenic, or stub."],
+          ["alphafold_score", "Numeric AlphaFold confidence score from the structure B-factor/pLDDT field."],
+          ["alphafold_class", "AlphaFold confidence class: very low, low, confident, or very high."],
+        ];
+        return `
+          <div class="query-doc-section">
+            <p class="legend-note"><strong>What the fields mean:</strong></p>
+            ${fieldRows.map(([field, meaning]) => `
+              <div class="query-doc-item"><strong>${escapeHtml(field)}</strong>: ${escapeHtml(meaning)}</div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      function uniqueSortedValues(values) {
+        return Array.from(new Set(values.filter((value) => value !== null && value !== undefined && String(value).trim() !== "")))
+          .map((value) => String(value))
+          .sort((left, right) => left.localeCompare(right));
+      }
+
+      function queryValueDocumentationHtml() {
+        const residues = getResidueAnnotations();
+        const groups = [
+          ["pathogenicity_class", "ClinVar residue-level pathogenicity classes.", ["pathogenic", "likely-pathogenic", "uncertain", "benign"]],
+          ["has_pathogenic", "Boolean entries.", ["true", "false"]],
+          ["function_class", "Experimental function calls present in this annotation set.", uniqueSortedValues(residues.flatMap((annotation) => annotation.function_classes || [])).concat(["gain-of-function", "loss-of-function"])],
+          ["molecular_consequence / clinvar_consequence", "ClinVar consequences present in this annotation set.", uniqueSortedValues(residues.flatMap((annotation) => annotation.molecular_consequences || []))],
+          ["missense_pathogenicity_class", "ClinVar pathogenicity classes among missense records only.", uniqueSortedValues(residues.flatMap((annotation) => annotation.missense_pathogenicity_classes || [])).concat(["pathogenic", "likely-pathogenic", "uncertain", "benign"])],
+          ["missense_class", "AlphaMissense classes.", ["benign", "ambiguous", "pathogenic", "stub"]],
+          ["alphafold_class", "AlphaFold confidence classes.", ["very low", "low", "confident", "very high"]],
+          ["primary_significance", "ClinVar clinical significance labels present in this annotation set.", uniqueSortedValues(residues.map((annotation) => annotation.primary_significance))],
+          ["phenotype / primary_phenotype", "Phenotype labels present in this annotation set.", uniqueSortedValues(Object.keys(PREPROCESSED_ANNOTATIONS.phenotype_counts || {}))],
+        ];
+        return `
+          <div class="query-doc-section">
+            <p class="legend-note"><strong>Possible category entries:</strong> use quotes around values with spaces, punctuation, or parentheses.</p>
+            ${groups.map(([field, note, values]) => {
+              const uniqueValues = uniqueSortedValues(values);
+              const valueHtml = uniqueValues.length
+                ? uniqueValues.map((value) => `<code>'${escapeHtml(value)}'</code>`).join("")
+                : `<span class="legend-note">No values found in this annotation set.</span>`;
+              return `
+                <details class="query-doc-values">
+                  <summary>${escapeHtml(field)} (${uniqueValues.length})</summary>
+                  <div>${escapeHtml(note)}</div>
+                  <div class="query-doc-scroll">${valueHtml}</div>
+                </details>
+              `;
+            }).join("")}
+            <div class="query-doc-item"><strong>residue</strong>, <strong>variant_count</strong>, <strong>missense_score</strong>, and <strong>alphafold_score</strong> are numeric fields. Use comparisons such as <code>residue BETWEEN 100 AND 120</code> or <code>missense_score &gt;= 0.8</code>.</div>
+          </div>
+        `;
+      }
+
       function queryDocumentationHtml() {
         return `
           <p class="legend-note">Queries are residue-level WHERE-style expressions. They match residues, not individual variant records.</p>
           <p class="legend-note"><strong>Set logic:</strong> use <code>OR</code> for union, <code>AND</code> for intersection, <code>NOT</code> for negation, and parentheses for grouping.</p>
-          <p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p>
+          <p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, molecular_consequence, clinvar_consequence, missense_pathogenicity_class, clinvar_missense_pathogenicity_class, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p>
           <p class="legend-note"><strong>Operators:</strong> =, !=, &lt;, &lt;=, &gt;, &gt;=, IN (...), BETWEEN ... AND ..., CONTAINS.</p>
-          <p class="legend-note"><strong>Common values:</strong> pathogenicity_class is 'pathogenic', 'likely-pathogenic', 'uncertain', or 'benign'. function_class is 'gain-of-function' or 'loss-of-function'.</p>
           <p class="legend-note">Examples:</p>
           ${QUERY_EXAMPLES.map((example) => `<code>${escapeHtml(example)}</code>`).join("")}
+          ${queryFieldDocumentationHtml()}
+          ${queryValueDocumentationHtml()}
         `;
       }
 
@@ -1649,6 +1783,12 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         if (normalizedField === "phenotype") {
           return annotation.phenotypes || [];
         }
+        if (normalizedField === "molecular_consequence" || normalizedField === "clinvar_consequence") {
+          return annotation.molecular_consequences || [];
+        }
+        if (normalizedField === "missense_pathogenicity_class" || normalizedField === "clinvar_missense_pathogenicity_class") {
+          return annotation.missense_pathogenicity_classes || [];
+        }
         if (normalizedField === "primary_significance") {
           return annotation.primary_significance || null;
         }
@@ -2030,6 +2170,11 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
             .map((annotation) => annotation.primary_significance)
             .filter(Boolean)
         )).map((value) => `'${value}'`);
+        const consequenceValues = Array.from(new Set(
+          getResidueAnnotations()
+            .flatMap((annotation) => annotation.molecular_consequences || [])
+            .filter(Boolean)
+        )).map((value) => `'${value}'`);
         const functionValues = ["'gain-of-function'", "'loss-of-function'"];
         const missenseClassValues = ["'benign'", "'ambiguous'", "'pathogenic'", "'stub'"];
         const alphafoldClassValues = ["'very low'", "'low'", "'confident'", "'very high'"];
@@ -2039,6 +2184,10 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           "variant_count",
           "primary_phenotype",
           "phenotype",
+          "molecular_consequence",
+          "clinvar_consequence",
+          "missense_pathogenicity_class",
+          "clinvar_missense_pathogenicity_class",
           "primary_significance",
           "pathogenicity_class",
           "has_pathogenic",
@@ -2068,6 +2217,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           ...functionValues,
           ...missenseClassValues,
           ...alphafoldClassValues,
+          ...consequenceValues,
           ...significanceValues,
           ...phenotypeValues,
         ];
@@ -3271,10 +3421,18 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       var pdb=JSON.parse(document.getElementById("structpheno-pdb-data").textContent||'""');
       var viewer=null, model=null, rows=[], rowId=0, centers={}, palette=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b"];
       function id(x){return document.getElementById(x);} function rs(){return ann.residue_list||[];} function stat(m){id("status").textContent=m;} function esc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");} function attr(v){return esc(v).replace(/'/g,"&#39;");}
-      function init(){focusList(); rows=[row(false),row(true)]; docs(); renderRows(); bindMain(); if(!window.$3Dmol){stat("3Dmol.js did not load."); return;} viewer=$3Dmol.createViewer("viewer",{backgroundColor:"white"}); model=viewer.addModel(pdb,"pdb"); draw(); viewer.zoomTo(); viewer.render(); stat("Protein loaded. Query highlights add colored residue markers.");}
-      function bindMain(){var a=["baseColorMode","renderStyle","focusResidue","backgroundOpacity"],i,e; for(i=0;i<a.length;i++){e=id(a[i]); if(e){e.addEventListener("change",draw); e.addEventListener("input",draw);}} if(id("resetView")){id("resetView").addEventListener("click",function(){id("focusResidue").value=""; if(viewer){viewer.zoomTo();} draw();});}}
+      function init(){focusList(); rows=defaultRows(); docs(); renderRows(); bindMain(); if(!window.$3Dmol){stat("3Dmol.js did not load."); return;} viewer=$3Dmol.createViewer("viewer",{backgroundColor:"white"}); model=viewer.addModel(pdb,"pdb"); draw(); viewer.zoomTo(); viewer.render(); stat("Protein loaded. Query highlights add colored residue markers.");}
+      function bindMain(){var a=["baseColorMode","renderStyle","focusResidue","backgroundOpacity"],i,e; for(i=0;i<a.length;i++){e=id(a[i]); if(e){e.addEventListener("change",draw); e.addEventListener("input",draw);}} if(id("resetView")){id("resetView").addEventListener("click",function(){id("focusResidue").value=""; if(viewer){viewer.zoomTo();} draw();});} bindPanelResize();}
+      function bindPanelResize(){bindColumnResize("legendPaneResizer",".legend-pane","structphenoLegendPaneWidth","--legend-pane-width",240,620); bindColumnResize("controlPaneResizer",".control-pane","structphenoControlPaneWidth","--control-pane-width",360,760);}
+      function bindColumnResize(handleId,targetSelector,storageKey,cssVar,min,maxCap){var h=id(handleId),target=document.querySelector(targetSelector),saved=savedPanelWidth(storageKey),drag=false,startX=0,startWidth=0; if(saved){setPanelWidth(cssVar,Number(saved),storageKey,min,maxCap);} if(!h||!target){return;} h.addEventListener("mousedown",start); h.addEventListener("touchstart",start,{passive:false}); function start(ev){drag=true; startX=pointerX(ev); startWidth=target.getBoundingClientRect().width; h.classList.add("is-dragging"); if(ev.preventDefault){ev.preventDefault();} document.addEventListener("mousemove",move); document.addEventListener("mouseup",end); document.addEventListener("touchmove",move,{passive:false}); document.addEventListener("touchend",end);} function move(ev){var width;if(!drag){return;} if(ev.preventDefault){ev.preventDefault();} width=startWidth-(pointerX(ev)-startX); setPanelWidth(cssVar,width,storageKey,min,maxCap); if(viewer){viewer.resize(); viewer.render();}} function end(){drag=false; h.classList.remove("is-dragging"); document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",end); document.removeEventListener("touchmove",move); document.removeEventListener("touchend",end);}}
+      function pointerX(ev){return ev.touches&&ev.touches.length?ev.touches[0].clientX:ev.clientX;}
+      function savedPanelWidth(key){try{return window.localStorage?localStorage.getItem(key):null;}catch(e){return null;}}
+      function savePanelWidth(key,width){try{if(window.localStorage){localStorage.setItem(key,String(Math.round(width)));}}catch(e){}}
+      function setPanelWidth(cssVar,width,key,min,maxCap){var ws=id("queryControls").closest(".workspace"),max;if(!ws||!isFinite(width)){return;} max=Math.max(min,Math.min(maxCap,window.innerWidth-560)); width=Math.max(min,Math.min(max,width)); ws.style.setProperty(cssVar,width+"px"); savePanelWidth(key,width);}
       function focusList(){var h='<option value="">No residue focus</option>',r=rs(),i; for(i=0;i<r.length;i++){h+='<option value="'+r[i].residue+'">Residue '+r[i].residue+'</option>';} id("focusResidue").innerHTML=h;}
       function op(){var v=Number(id("backgroundOpacity").value); if(!isFinite(v)){v=.8;} v=Math.max(.05,Math.min(1,v)); if(id("backgroundOpacityValue")){id("backgroundOpacityValue").textContent=v.toFixed(2);} return v;}
+      function defaultRows(){return [preset("pathogenicity_class CONTAINS benign","#2563eb"),preset("pathogenicity_class CONTAINS pathogen","#dc2626"),preset("function_class = gain-of-function","#ff00cc"),preset("function_class = loss-of-function","#22c55e"),row(true)];}
+      function preset(q,c){return {id:"q"+(++rowId),ph:false,en:true,color:c,size:10.0,sd:"10.0",q:q,draft:q,err:"",m:[]};}
       function row(ph){var n=0,i; for(i=0;i<rows.length;i++){if(!rows[i].ph){n++;}} return {id:"q"+(++rowId),ph:ph,en:!ph,color:palette[n%palette.length],size:5.0,sd:"5.0",q:"",draft:"",err:"",m:[]};}
       function placeholder(){var a=[],p=null,i; for(i=0;i<rows.length;i++){if(rows[i].ph){p=rows[i];}else{a.push(rows[i]);}} if(!p){p=row(true);} rows=a.concat([p]);}
       function find(rid){var i; for(i=0;i<rows.length;i++){if(rows[i].id===rid){return rows[i];}} return null;}
@@ -3286,11 +3444,16 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       function surfaceType(){var s=id("renderStyle").value,t="VDW"; if(s==="surface-ms"){t="MS";} if(s==="surface-sas"||s==="surface-smooth"){t="SAS";} if(s==="surface-ses"){t="SES";} if(window.$3Dmol&&$3Dmol.SurfaceType&&$3Dmol.SurfaceType[t]){return $3Dmol.SurfaceType[t];} return window.$3Dmol&&$3Dmol.SurfaceType?$3Dmol.SurfaceType.VDW:null;}
       function addSurface(c,o){var st=surfaceType(),smooth=id("renderStyle").value==="surface-smooth",alpha;if(!st){return;} alpha=smooth?Math.max(.25,Math.min(.85,o)):Math.max(.08,Math.min(.9,o)); viewer.addSurface(st,{color:c,opacity:alpha,transparent:alpha<1},{}); if(!smooth){viewer.setStyle({},{line:{color:"#aeb8c2",opacity:Math.min(.14,o)}});}}
       function paintResidue(res,c,o){if(isSurface()){sphere(res,c,.34,0,1);}else{viewer.setStyle({resi:res},style(c,o,.12));}}
-      function draw(){evalRows(); summary(); list(); if(!viewer){return;} var mode=id("baseColorMode").value,o=op(),r=rs(),i,c; if(viewer.removeAllShapes){viewer.removeAllShapes();} if(viewer.removeAllSurfaces){viewer.removeAllSurfaces();} viewer.setStyle({},{}); if(isSurface()){addSurface("#d9d9d9",o);}else{viewer.setStyle({},style(mode==="default"?"spectrum":"#d9d9d9",o,.12));} for(i=0;i<r.length;i++){c=null; if(mode==="missense-gradient"&&r[i].missense){c=r[i].missense.color||score(r[i].missense.score);} if(mode==="missense-class"&&r[i].missense){c=miss(r[i].missense["class"]);} if(mode==="alphafold-confidence"&&r[i].alphafold_confidence){c=r[i].alphafold_confidence.color;} if(mode==="clinvar-pathogenicity"){c=pathColor(path(r[i]));} if(mode==="surprise"){c=surprise(r[i]);} if(c){paintResidue(r[i].residue,c,o);}} if(mode==="clinvar-pathogenicity"){clinvarClassMarkers(r);} markers(); focus(); viewer.render();}
+      function draw(){evalRows(); summary(); list(); legend(); if(!viewer){return;} var mode=id("baseColorMode").value,o=op(),r=rs(),i,c; if(viewer.removeAllShapes){viewer.removeAllShapes();} if(viewer.removeAllSurfaces){viewer.removeAllSurfaces();} viewer.setStyle({},{}); if(isSurface()){addSurface("#d9d9d9",o);}else{viewer.setStyle({},style(mode==="default"?"spectrum":"#d9d9d9",o,.12));} for(i=0;i<r.length;i++){c=null; if(mode==="missense-gradient"&&r[i].missense){c=r[i].missense.color||score(r[i].missense.score);} if(mode==="missense-class"&&r[i].missense){c=miss(r[i].missense["class"]);} if(mode==="alphafold-confidence"&&r[i].alphafold_confidence){c=r[i].alphafold_confidence.color;} if(mode==="clinvar-pathogenicity"){c=pathColor(path(r[i]));} if(mode==="surprise"){c=surprise(r[i]);} if(c){paintResidue(r[i].residue,c,o);}} if(mode==="clinvar-pathogenicity"){clinvarClassMarkers(r);} markers(); focus(); viewer.render();}
       function center(res){var k=String(res),a,i,c; if(centers.hasOwnProperty(k)){return centers[k];} if(!model||!model.selectedAtoms){return null;} a=model.selectedAtoms({resi:res})||[]; if(!a.length){centers[k]=null; return null;} for(i=0;i<a.length;i++){if(String(a[i].atom||"").toUpperCase()==="CA"){c={x:+a[i].x||0,y:+a[i].y||0,z:+a[i].z||0}; centers[k]=c; return c;}} c={x:0,y:0,z:0}; for(i=0;i<a.length;i++){c.x+=+a[i].x||0; c.y+=+a[i].y||0; c.z+=+a[i].z||0;} c.x/=a.length; c.y/=a.length; c.z/=a.length; centers[k]=c; return c;}
       function sphere(res,c,rad,idx,total){var p=center(res),ang,ring; if(!p){return;} if(total>1){ang=2*Math.PI*idx/total; ring=Math.max(rad*.9,.22); p={x:p.x+ring*Math.cos(ang),y:p.y+ring*Math.sin(ang),z:p.z};} viewer.addSphere({center:p,color:c,radius:rad,opacity:1});}
       function clinvarClassMarkers(r){var i,j,classes; for(i=0;i<r.length;i++){classes=clinvarClasses(r[i]); if(classes.length<2){continue;} for(j=0;j<classes.length;j++){sphere(r[i].residue,pathColor(classes[j]),.24,j,classes.length);}}}
       function clinvarClasses(a){var counts=a.significance_counts||{},seen={},out=[],label,key; for(label in counts){if(counts.hasOwnProperty(label)&&counts[label]>0){key=significanceClass(label); if(key&&!seen[key]){seen[key]=true; out.push(key);}}} out.sort(function(x,y){return rank(y)-rank(x);}); return out;}
+      function legend(){var mode=id("baseColorMode").value,h="",active=[],i,r; if(mode==="default"){h+='<p class="legend-note">Protein is colored by sequence position.</p>'+bar("linear-gradient(90deg,#304ffe,#00bcd4,#4caf50,#ffeb3b,#f44336)","N terminus","C terminus");} else if(mode==="missense-gradient"){h+='<p class="legend-note">AlphaMissense mean pathogenicity score.</p>'+bar("linear-gradient(90deg,#2b83ba,#abdda4,#ffffbf,#fdae61,#d7191c)","0","1");} else if(mode==="missense-class"){h+='<p class="legend-note">AlphaMissense class.</p>'+leg([sw("#2ca25f","Benign"),sw("#fee08b","Ambiguous"),sw("#d73027","Pathogenic"),sw("#9ca3af","No score")]);} else if(mode==="alphafold-confidence"){h+='<p class="legend-note">AlphaFold confidence from PDB B-factors.</p>'+bar("linear-gradient(90deg,#a03f51,#6d5578,#4f6290,#3070a7)","Low","High");} else if(mode==="clinvar-pathogenicity"){h+='<p class="legend-note">Strongest ClinVar pathogenicity class colors the protein. Mixed-class residues also get jittered class dots.</p>'+pathLegend();} else if(mode==="surprise"){h+='<p class="legend-note">ClinVar and AlphaMissense disagreements.</p>'+leg([sw("#7b3294","ClinVar pathogenic, low AlphaMissense"),sw("#008837","ClinVar benign, high AlphaMissense"),sw("#fdae61","ClinVar uncertain, high AlphaMissense")]);} else if(mode==="contact-network"){h+='<p class="legend-note">Disease contact network mode. Query markers remain visible as overlays.</p>'+pathLegend();} else {h+='<p class="legend-note">Gray protein base. Query markers are overlaid without recoloring the protein.</p>'+leg([sw("#d9d9d9","Protein")]);} for(i=0;i<rows.length;i++){r=rows[i]; if(r.en&&!r.ph&&!r.err){active.push(sw(r.color,r.q+" ("+r.m.length+" hits)"));}} if(active.length){h+='<h2>Query Markers</h2><p class="legend-note">Colored spheres from enabled query rows.</p>'+leg(active);} id("colorLegend").innerHTML=h;}
+      function sw(c,l){return '<span class="legend-item"><span class="swatch" style="background:'+c+'"></span>'+esc(l)+'</span>';}
+      function leg(items){return '<div class="legend">'+items.join("")+'</div>';}
+      function bar(bg,l,r){return '<div class="colorbar"><div class="colorbar-track" style="background:'+bg+'"></div><div class="colorbar-labels"><span>'+esc(l)+'</span><span>'+esc(r)+'</span></div></div>';}
+      function pathLegend(){return leg([sw(pathColor("pathogenic"),"Pathogenic"),sw(pathColor("likely-pathogenic"),"Likely pathogenic"),sw(pathColor("uncertain"),"Uncertain/conflicting"),sw(pathColor("benign"),"Benign/likely benign")]);}
       function markers(){var g={},i,j,r,res; for(i=0;i<rows.length;i++){r=rows[i]; if(!r.en||r.ph||r.err){continue;} for(j=0;j<r.m.length;j++){res=r.m[j]; g[res]=g[res]||[]; g[res].push(r);}} for(res in g){if(g.hasOwnProperty(res)){for(i=0;i<g[res].length;i++){sphere(+res,g[res][i].color,Math.max(.18,g[res][i].size*.16),i,g[res].length);}}}}
       function focus(){var res=Number(id("focusResidue").value); if(res){sphere(res,"#2459d6",.62,0,1); viewer.zoomTo({resi:res});}}
       function evalRows(){var r=rs(),i,j; for(i=0;i<rows.length;i++){rows[i].m=[]; rows[i].err=""; if(rows[i].ph||!rows[i].q.replace(/\s/g,"")){continue;} try{for(j=0;j<r.length;j++){if(match(rows[i].q,r[j])){rows[i].m.push(r[j].residue);}}}catch(e){rows[i].err=e.message||String(e);}}}
@@ -3300,11 +3463,15 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       function expr(q,a){var p,i; q=outerParens(q); if(/^NOT\s+/i.test(q)){return !expr(q.replace(/^NOT\s+/i,""),a);} p=split(q,"OR"); if(p.length>1){for(i=0;i<p.length;i++){if(expr(p[i],a)){return true;}} return false;} p=split(q,"AND"); if(p.length>1){for(i=0;i<p.length;i++){if(!expr(p[i],a)){return false;}} return true;} return pred(q,a);}
       function strip(v){v=String(v).replace(/^\s+|\s+$/g,""); if((v.charAt(0)==="'"&&v.charAt(v.length-1)==="'")||(v.charAt(0)==='"'&&v.charAt(v.length-1)==='"')){return v.slice(1,-1);} return v;}
       function pred(q,a){var m,f,x,arr,i; m=/^([A-Za-z_][A-Za-z0-9_-]*)\s+CONTAINS\s+(.+)$/i.exec(q); if(m){return contains(val(a,m[1]),strip(m[2]));} m=/^([A-Za-z_][A-Za-z0-9_-]*)\s+BETWEEN\s+(.+)\s+AND\s+(.+)$/i.exec(q); if(m){x=+val(a,m[1]); return x>=+strip(m[2])&&x<=+strip(m[3]);} m=/^([A-Za-z_][A-Za-z0-9_-]*)\s+IN\s*\((.*)\)$/i.exec(q); if(m){f=val(a,m[1]); arr=m[2].split(/\s*,\s*/); for(i=0;i<arr.length;i++){if(eq(f,strip(arr[i]))){return true;}} return false;} m=/^([A-Za-z_][A-Za-z0-9_-]*)\s*(=|!=|<=|>=|<|>)\s*(.+)$/.exec(q); if(m){return cmp(val(a,m[1]),m[2],strip(m[3]));} throw new Error("Could not parse query");}
-      function val(a,f){f=String(f).toLowerCase(); if(f==="residue"){return +a.residue;} if(f==="variant_count"){return +(a.variant_count||0);} if(f==="phenotype"){return a.phenotypes||[];} if(f==="primary_phenotype"){return a.primary_phenotype||null;} if(f==="primary_significance"){return a.primary_significance||null;} if(f==="pathogenicity_class"){return path(a);} if(f==="has_pathogenic"){return !!a.has_pathogenic;} if(f==="function_class"){return a.function_classes||[];} if(f==="missense_score"){return a.missense?+a.missense.score:null;} if(f==="missense_class"){return a.missense?a.missense["class"]:null;} if(f==="alphafold_score"){return a.alphafold_confidence?+a.alphafold_confidence.score:null;} if(f==="alphafold_class"){return a.alphafold_confidence?a.alphafold_confidence["class"]:null;} throw new Error("Unknown field '"+f+"'");}
+      function val(a,f){f=String(f).toLowerCase(); if(f==="residue"){return +a.residue;} if(f==="variant_count"){return +(a.variant_count||0);} if(f==="phenotype"){return a.phenotypes||[];} if(f==="primary_phenotype"){return a.primary_phenotype||null;} if(f==="molecular_consequence"||f==="clinvar_consequence"){return a.molecular_consequences||[];} if(f==="missense_pathogenicity_class"||f==="clinvar_missense_pathogenicity_class"){return a.missense_pathogenicity_classes||[];} if(f==="primary_significance"){return a.primary_significance||null;} if(f==="pathogenicity_class"){return path(a);} if(f==="has_pathogenic"){return !!a.has_pathogenic;} if(f==="function_class"){return a.function_classes||[];} if(f==="missense_score"){return a.missense?+a.missense.score:null;} if(f==="missense_class"){return a.missense?a.missense["class"]:null;} if(f==="alphafold_score"){return a.alphafold_confidence?+a.alphafold_confidence.score:null;} if(f==="alphafold_class"){return a.alphafold_confidence?a.alphafold_confidence["class"]:null;} throw new Error("Unknown field '"+f+"'");}
       function contains(f,n){var i; n=String(n).toLowerCase(); if(Object.prototype.toString.call(f)==="[object Array]"){for(i=0;i<f.length;i++){if(String(f[i]).toLowerCase().indexOf(n)!==-1){return true;}} return false;} return String(f||"").toLowerCase().indexOf(n)!==-1;}
       function eq(f,x){var i; if(Object.prototype.toString.call(f)==="[object Array]"){for(i=0;i<f.length;i++){if(eq(f[i],x)){return true;}} return false;} if(!isNaN(Number(f))&&!isNaN(Number(x))){return Number(f)===Number(x);} return String(f).toLowerCase()===String(x).toLowerCase();} function cmp(f,op,x){if(op==="="){return eq(f,x);} if(op==="!="){return !eq(f,x);} f=Number(f); x=Number(x); if(!isFinite(f)||!isFinite(x)){return false;} if(op==="<"){return f<x;} if(op==="<="){return f<=x;} if(op===">"){return f>x;} if(op===">="){return f>=x;} return false;}
       function path(a){var s=+(a.max_pathogenicity||0); if(!(+(a.variant_count||0))){return null;} if(a.pathogenicity_class){return a.pathogenicity_class;} if(s>=4){return "pathogenic";} if(s===3){return "likely-pathogenic";} if(s===2){return "uncertain";} return "benign";} function significanceClass(x){x=String(x||"").toLowerCase(); if(x.indexOf("pathogenic/likely pathogenic")!==-1){return "pathogenic";} if(x.indexOf("pathogenic")!==-1&&x.indexOf("likely")===-1&&x.indexOf("conflicting")===-1){return "pathogenic";} if(x.indexOf("likely pathogenic")!==-1){return "likely-pathogenic";} if(x.indexOf("uncertain")!==-1||x.indexOf("conflicting")!==-1){return "uncertain";} if(x.indexOf("benign")!==-1){return "benign";} return null;} function rank(c){if(c==="pathogenic"){return 4;} if(c==="likely-pathogenic"){return 3;} if(c==="uncertain"){return 2;} if(c==="benign"){return 1;} return 0;} function pathColor(c){if(c==="pathogenic"){return "#b2182b";} if(c==="likely-pathogenic"){return "#ef8a62";} if(c==="uncertain"){return "#fddbc7";} if(c==="benign"){return "#d1e5f0";} return "#d9d9d9";} function miss(c){c=String(c||"").toLowerCase(); if(c==="benign"){return "#2ca25f";} if(c==="pathogenic"){return "#d73027";} if(c==="ambiguous"){return "#fee08b";} return "#9ca3af";} function score(s){var v=Math.max(0,Math.min(1,+s||0)); return "rgb("+Math.round(43+172*v)+", "+Math.round(131-106*v)+", "+Math.round(186-158*v)+")";} function surprise(a){var s=a.missense?+a.missense.score:NaN,p=+(a.max_pathogenicity||0); if(!isFinite(s)){return null;} if(p>=3&&s<=.35){return "#7b3294";} if(p<=1&&+(a.variant_count||0)>0&&s>=.75){return "#008837";} if(p===2&&s>=.75){return "#fdae61";} return null;}
-      function docs(){id("queryExamples").innerHTML='<p class="legend-note">Queries are residue-level WHERE-style expressions. Strings may be quoted, but simple hyphenated values can be typed directly.</p><p class="legend-note"><strong>Set logic:</strong> OR is union, AND is intersection, NOT is negation; parentheses can group boolean clauses.</p><p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p><p class="legend-note"><strong>Operators:</strong> =, !=, &lt;, &lt;=, &gt;, &gt;=, IN (...), BETWEEN ... AND ..., CONTAINS.</p><code>all</code><code>residue IN (42, 43, 44)</code><code>residue BETWEEN 100 AND 120</code><code>function_class = gain-of-function</code><code>NOT function_class IN (gain-of-function, loss-of-function)</code><code>phenotype CONTAINS epileptic AND pathogenicity_class = pathogenic</code>';}
+      function uniq(v){var s={},o=[],i,x; for(i=0;i<v.length;i++){x=v[i]; if(x===null||x===undefined||String(x).replace(/\s/g,"")===""){continue;} x=String(x); if(!s[x]){s[x]=true; o.push(x);}} o.sort(function(a,b){return a.localeCompare(b);}); return o;}
+      function vals(name,note,v){var u=uniq(v),h='<details class="query-doc-values"><summary>'+esc(name)+' ('+u.length+')</summary><div>'+esc(note)+'</div><div class="query-doc-scroll">',i; if(!u.length){h+='<span class="legend-note">No values found in this annotation set.</span>';} for(i=0;i<u.length;i++){h+='<code>\\''+esc(u[i])+'\\'</code>';} return h+'</div></details>';}
+      function fieldDoc(){var f=[["all","Special query that matches every residue in the structure."],["residue","Numeric residue position, for exact matches, IN lists, or BETWEEN ranges."],["variant_count","Number of ClinVar variant records aggregated onto that residue."],["primary_phenotype","The most common non-generic phenotype label for the residue."],["phenotype","Any phenotype label attached to any ClinVar record at the residue; use CONTAINS for partial text."],["primary_significance","The highest-priority ClinVar clinical significance label at the residue."],["pathogenicity_class","The strongest residue-level ClinVar class: pathogenic, likely-pathogenic, uncertain, or benign."],["has_pathogenic","Boolean true when the residue has pathogenic or likely pathogenic ClinVar evidence."],["molecular_consequence","Any ClinVar molecular consequence at the residue, such as missense variant."],["clinvar_consequence","Alias for molecular_consequence."],["missense_pathogenicity_class","ClinVar pathogenicity classes contributed only by records whose consequence is missense."],["clinvar_missense_pathogenicity_class","Alias for missense_pathogenicity_class."],["function_class","Experimental functional call at the residue: gain-of-function or loss-of-function when known."],["missense_score","Numeric AlphaMissense pathogenicity score from 0 to 1; absent scores fail numeric comparisons."],["missense_class","AlphaMissense class: benign, ambiguous, pathogenic, or stub."],["alphafold_score","Numeric AlphaFold confidence score from the structure B-factor/pLDDT field."],["alphafold_class","AlphaFold confidence class: very low, low, confident, or very high."]],h='<div class="query-doc-section"><p class="legend-note"><strong>What the fields mean:</strong></p>',i; for(i=0;i<f.length;i++){h+='<div class="query-doc-item"><strong>'+esc(f[i][0])+'</strong>: '+esc(f[i][1])+'</div>';} return h+'</div>';}
+      function valueDoc(){var r=rs(),phen=Object.keys(ann.phenotype_counts||{}),sig=[],cons=[],fun=[],missPath=[],i; for(i=0;i<r.length;i++){if(r[i].primary_significance){sig.push(r[i].primary_significance);} cons=cons.concat(r[i].molecular_consequences||[]); fun=fun.concat(r[i].function_classes||[]); missPath=missPath.concat(r[i].missense_pathogenicity_classes||[]);} return '<div class="query-doc-section"><p class="legend-note"><strong>Possible category entries:</strong> use quotes around values with spaces, punctuation, or parentheses.</p>'+vals("pathogenicity_class","ClinVar residue-level pathogenicity classes.",["pathogenic","likely-pathogenic","uncertain","benign"])+vals("has_pathogenic","Boolean entries.",["true","false"])+vals("function_class","Experimental function calls present in this annotation set.",fun.concat(["gain-of-function","loss-of-function"]))+vals("molecular_consequence / clinvar_consequence","ClinVar consequences present in this annotation set.",cons)+vals("missense_pathogenicity_class","ClinVar pathogenicity classes among missense records only.",missPath.concat(["pathogenic","likely-pathogenic","uncertain","benign"]))+vals("missense_class","AlphaMissense classes.",["benign","ambiguous","pathogenic","stub"])+vals("alphafold_class","AlphaFold confidence classes.",["very low","low","confident","very high"])+vals("primary_significance","ClinVar clinical significance labels present in this annotation set.",sig)+vals("phenotype / primary_phenotype","Phenotype labels present in this annotation set.",phen)+'<div class="query-doc-item"><strong>residue</strong>, <strong>variant_count</strong>, <strong>missense_score</strong>, and <strong>alphafold_score</strong> are numeric fields. Use comparisons such as <code>residue BETWEEN 100 AND 120</code> or <code>missense_score &gt;= 0.8</code>.</div></div>';}
+      function docs(){id("queryExamples").innerHTML='<p class="legend-note">Queries are residue-level WHERE-style expressions. Strings may be quoted, but simple hyphenated values can be typed directly.</p><p class="legend-note"><strong>Set logic:</strong> OR is union, AND is intersection, NOT is negation; parentheses can group boolean clauses.</p><p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, molecular_consequence, clinvar_consequence, missense_pathogenicity_class, clinvar_missense_pathogenicity_class, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p><p class="legend-note"><strong>Operators:</strong> =, !=, &lt;, &lt;=, &gt;, &gt;=, IN (...), BETWEEN ... AND ..., CONTAINS.</p><code>all</code><code>residue IN (42, 43, 44)</code><code>residue BETWEEN 100 AND 120</code><code>function_class = gain-of-function</code><code>pathogenicity_class CONTAINS pathogen AND molecular_consequence CONTAINS missense</code><code>missense_pathogenicity_class CONTAINS pathogen</code><code>NOT function_class IN (gain-of-function, loss-of-function)</code><code>phenotype CONTAINS epileptic AND pathogenicity_class = pathogenic</code>'+fieldDoc()+valueDoc();}
       function summary(){var u={},a=0,b=0,i,j,r; for(i=0;i<rows.length;i++){r=rows[i]; if(r.err){b++;} if(!r.en||r.ph||r.err){continue;} a++; for(j=0;j<r.m.length;j++){u[r.m[j]]=true;}} id("diseaseStats").innerHTML='<div class="stats-grid"><div class="stat"><strong>'+a+'</strong><span>active query rows</span></div><div class="stat"><strong>'+Object.keys(u).length+'</strong><span>unique matched residues</span></div><div class="stat"><strong>'+rs().length+'</strong><span>total residues</span></div><div class="stat"><strong>'+b+'</strong><span>invalid queries</span></div></div>';}
       function list(){var r=rs(),h="",i,n=Math.min(80,r.length); for(i=0;i<n;i++){h+="<li>Residue "+r[i].residue+": "+esc(r[i].primary_significance||"annotated")+", "+esc(r[i].primary_phenotype||"no phenotype")+"</li>";} id("variantList").innerHTML=h;}
       window.addEventListener("load",function(){try{init();}catch(e){stat("Viewer startup error: "+(e.message||String(e))); if(window.console&&console.error){console.error(e);}}});
@@ -3432,6 +3599,24 @@ def _build_residue_annotation(
         }
     )
     significance_counts = Counter(str(record.get("significance") or "Unclassified") for record in records)
+    molecular_consequences = sorted(
+        {
+            str(consequence)
+            for record in records
+            for consequence in record.get("molecular_consequences", [])
+            if consequence
+        }
+    )
+    missense_pathogenicity_classes = sorted(
+        {
+            path_class
+            for record in records
+            if _record_has_missense_consequence(record)
+            for path_class in [_explicit_pathogenicity_class(record.get("significance"))]
+            if path_class
+        },
+        key=lambda path_class: -_pathogenicity_class_rank(path_class),
+    )
     primary_phenotype = _choose_primary_phenotype(records)
     primary_significance = _choose_primary_significance(significance_counts)
     max_pathogenicity = max(
@@ -3457,6 +3642,8 @@ def _build_residue_annotation(
         "primary_phenotype": primary_phenotype,
         "phenotype_color": phenotype_colors.get(primary_phenotype, "#9ca3af"),
         "significance_counts": dict(significance_counts),
+        "molecular_consequences": molecular_consequences,
+        "missense_pathogenicity_classes": missense_pathogenicity_classes,
         "primary_significance": primary_significance,
         "has_pathogenic": max_pathogenicity >= 3,
         "max_pathogenicity": max_pathogenicity,
@@ -3484,6 +3671,40 @@ def _variant_summary(record: dict[str, Any], experimental_function: dict[str, An
         "function_classes": function_entry.get("function_classes", []),
         "function_calls": function_entry.get("function_calls", []),
     }
+
+
+def _record_has_missense_consequence(record: dict[str, Any]) -> bool:
+    return any(
+        "missense" in str(consequence).lower()
+        for consequence in record.get("molecular_consequences", [])
+    )
+
+
+def _explicit_pathogenicity_class(significance: str | None) -> str | None:
+    normalized = str(significance or "").lower()
+    if "pathogenic/likely pathogenic" in normalized:
+        return "pathogenic"
+    if "pathogenic" in normalized and "likely" not in normalized and "conflicting" not in normalized:
+        return "pathogenic"
+    if "likely pathogenic" in normalized:
+        return "likely-pathogenic"
+    if "conflicting" in normalized or "uncertain" in normalized:
+        return "uncertain"
+    if "benign" in normalized:
+        return "benign"
+    return None
+
+
+def _pathogenicity_class_rank(path_class: str) -> int:
+    if path_class == "pathogenic":
+        return 4
+    if path_class == "likely-pathogenic":
+        return 3
+    if path_class == "uncertain":
+        return 2
+    if path_class == "benign":
+        return 1
+    return 0
 
 
 def _experimental_function_for_record(record: dict[str, Any], experimental_function: dict[str, Any]) -> dict[str, Any]:
@@ -3918,3 +4139,4 @@ def _source_has_data(report: dict[str, Any], source_name: str) -> bool:
 
     data = source.get("data", [])
     return bool(data)
+
