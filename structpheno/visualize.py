@@ -3745,6 +3745,14 @@ def _scn1a_brunklaus_path() -> Path:
     return Path("data") / "patient_variants" / "SCN1A" / "dravet_gefs_brunklaus.csv"
 
 
+def _scn2a_patient_lof_gof_path() -> Path:
+    return Path("data") / "patient_variants" / "SCN2A" / "lof_gof.csv"
+
+
+def _scn2a_functional_prediction_path() -> Path:
+    return Path("data") / "functional_variants" / "SCN2A" / "func_var_pred.csv"
+
+
 def _experimental_function_source_paths(gene: str) -> list[Path]:
     normalized_gene = normalize_gene(gene)
     paths = []
@@ -3753,6 +3761,10 @@ def _experimental_function_source_paths(gene: str) -> list[Path]:
         paths.append(exp_variance_path)
     if normalized_gene == "SCN1A":
         for path in [_scn1a_bosselman_path(), _scn1a_gof_ndeema_path(), _scn1a_brunklaus_path()]:
+            if path.exists():
+                paths.append(path)
+    if normalized_gene == "SCN2A":
+        for path in [_scn2a_patient_lof_gof_path(), _scn2a_functional_prediction_path()]:
             if path.exists():
                 paths.append(path)
     return paths
@@ -3877,6 +3889,31 @@ def _load_experimental_function_data(gene: str) -> dict[str, Any]:
                         residue=row.get("residue_canonical") or row.get("residue"),
                         function_call=f"{dx} PTV inferred LOF",
                         source_label="brunklaus_dravet_gefs",
+                    )
+
+    if normalized_gene == "SCN2A":
+        patient_path = _scn2a_patient_lof_gof_path()
+        if patient_path.exists():
+            with patient_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    patient_row_count += 1
+                    add_call(
+                        variant=row.get("variant"),
+                        function_call=row.get("function_call"),
+                        source_label="scn2a_patient_lof_gof",
+                    )
+
+        functional_path = _scn2a_functional_prediction_path()
+        if functional_path.exists():
+            with functional_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    patient_row_count += 1
+                    add_call(
+                        variant=row.get("variant_p"),
+                        function_call=row.get("functional_effect"),
+                        source_label="scn2a_functional_effect",
                     )
 
     class_counts: Counter[str] = Counter()
