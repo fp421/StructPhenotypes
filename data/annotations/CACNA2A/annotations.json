@@ -1,7 +1,7 @@
 {
   "gene": "CACNA2A",
   "source": "StructPhenotypes visualization preprocessing",
-  "annotation_version": 1,
+  "annotation_version": 6,
   "record_count": 0,
   "residue_count": 0,
   "phenotype_counts": {},
@@ -11,8 +11,23 @@
     "Pathogenic",
     "Pathogenic/Likely pathogenic"
   ],
+  "function_class_labels": {
+    "gain-of-function": "Gain of function",
+    "loss-of-function": "Loss of function"
+  },
+  "function_class_counts": {},
   "residues": {},
   "residue_list": [],
+  "experimental_function": {
+    "source": "none",
+    "path": "data\\exp_variance\\CACNA2A\\CACNA2A_patient_data.csv",
+    "paths": [],
+    "patient_row_count": 0,
+    "variant_count": 0,
+    "residue_count": 0,
+    "class_counts": {},
+    "source_counts": {}
+  },
   "missense_predictions": {
     "source": "stub_linear_by_residue_position",
     "score_range": [

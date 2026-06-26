@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Download AlphaMissense predictions for a gene of interest."""
 
 import argparse
@@ -264,7 +264,7 @@ def fetch_alphamissense_variants(uniprot_id: str) -> list:
                 print(f"gsutil download failed: {e}", file=sys.stderr)
 
     # If no gsutil, provide instructions
-    print(f"\n⚠️  AlphaMissense data not found. To fetch predictions for {uniprot_id}:")
+    print(f"\nWarning: AlphaMissense data not found. To fetch predictions for {uniprot_id}:")
     print("\nOption 1: Download using gsutil (recommended, faster)")
     print("  gsutil -m cp gs://dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz data/alphamissense/")
     print("  Then re-run this script\n")

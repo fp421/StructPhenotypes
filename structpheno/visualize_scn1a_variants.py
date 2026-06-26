@@ -184,7 +184,7 @@ def render_html(pdb_text: str, payload: dict) -> str:
       const color = present[0].color;
       const count = present.reduce((n, c) => n + c.variants.length, 0);
       maxCount = Math.max(maxCount, count);
-      const radius = sizeByCount ? (1.0 + 0.55 * Math.sqrt(count)) : 1.6;
+      const radius = sizeByCount ? (1.0 + 0.55 * Math.sqrt(count)) : 5.0;
       viewer.addStyle({{ resi: info.residue }}, {{ cartoon: {{ color }} }});
       viewer.addStyle({{ resi: info.residue, atom: "CA" }}, {{ sphere: {{ color, radius }} }});
       shown++;

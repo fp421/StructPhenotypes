@@ -1,12 +1,19 @@
-"""Local 3Dmol.js visualization helpers for StructPhenotypes."""
+﻿"""Local 3Dmol.js visualization helpers for StructPhenotypes."""
 
 from __future__ import annotations
 
+import csv
 from collections import Counter, defaultdict
 import json
 from html import escape
 from pathlib import Path
+import re
 from typing import Any
+
+try:
+    from .paths import normalize_gene
+except ImportError:
+    from paths import normalize_gene
 
 
 EXAMPLE_PDB = """\
@@ -134,6 +141,11 @@ PHENOTYPE_PALETTE = [
     "#7b4173",
 ]
 
+FUNCTION_CLASS_LABELS = {
+    "gain-of-function": "Gain of function",
+    "loss-of-function": "Loss of function",
+}
+
 
 def visualize(
     report: dict[str, Any],
@@ -204,6 +216,7 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
     """Build residue-level annotations for the 3D viewer."""
     records = _extract_clinvar_records(report)
     gene = str(report.get("gene") or _infer_gene(records) or "unknown")
+    experimental_function = _load_experimental_function_data(gene)
     records_by_residue = _group_records_by_residue(records)
     phenotype_counts = _count_phenotypes(records)
     phenotype_colors = _assign_phenotype_colors(phenotype_counts)
@@ -225,6 +238,7 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
             phenotype_colors,
             missense_by_residue.get(residue_key),
             confidence_by_residue.get(residue_key),
+            experimental_function,
         )
         residues[residue_key] = annotation
         residue_list.append(annotation)
@@ -232,14 +246,26 @@ def make_visualization_annotations(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "gene": gene,
         "source": "StructPhenotypes visualization preprocessing",
-        "annotation_version": 1,
+        "annotation_version": 6,
         "record_count": len(records),
         "residue_count": len(residues),
         "phenotype_counts": dict(phenotype_counts),
         "phenotype_colors": phenotype_colors,
         "pathogenic_labels": sorted(PATHOGENIC_LABELS),
+        "function_class_labels": FUNCTION_CLASS_LABELS,
+        "function_class_counts": experimental_function["class_counts"],
         "residues": residues,
         "residue_list": residue_list,
+        "experimental_function": {
+            "source": experimental_function["source"],
+            "path": experimental_function["path"],
+            "paths": experimental_function.get("paths", []),
+            "patient_row_count": experimental_function["patient_row_count"],
+            "variant_count": experimental_function["variant_count"],
+            "residue_count": experimental_function["residue_count"],
+            "class_counts": experimental_function["class_counts"],
+            "source_counts": experimental_function.get("source_counts", {}),
+        },
         "missense_predictions": {
             "source": missense_source,
             "score_range": [0.0, 1.0],
@@ -302,6 +328,8 @@ def _annotation_cache_is_usable(annotations: dict[str, Any], report: dict[str, A
     cached_gene = str(annotations.get("gene", "unknown")).upper()
     if cached_gene != expected_gene:
         return False
+    if int(annotations.get("annotation_version", 0)) < 6:
+        return False
 
     if _source_has_data(report, "alpha_missense"):
         missense = annotations.get("missense_predictions", {})
@@ -312,6 +340,14 @@ def _annotation_cache_is_usable(annotations: dict[str, Any], report: dict[str, A
         confidence = annotations.get("alphafold_confidence", {})
         if confidence.get("source") != "alphafold_pdb_b_factor":
             return False
+
+    function_source_paths = _experimental_function_source_paths(expected_gene)
+    experimental_function = annotations.get("experimental_function", {})
+    if function_source_paths:
+        if experimental_function.get("source") in {None, "none"}:
+            return False
+    elif experimental_function.get("source") not in {None, "none"}:
+        return False
 
     return True
 
@@ -373,382 +409,8 @@ def _extract_alphafold_confidence(report: dict[str, Any]) -> tuple[dict[str, dic
 
 
 def _render_html_legacy(report: dict[str, Any], annotations: dict[str, Any], pdb_text: str) -> str:
-    """Render a standalone HTML viewer around example protein data."""
-    gene = str(report.get("gene", "unknown"))
-    structure_label = "AlphaFold PDB structure" if pdb_text != EXAMPLE_PDB else "embedded example protein structure"
-    report_json = _safe_json(report)
-    preprocessed_json = _safe_json(annotations)
-    pdb_json = _safe_json(pdb_text)
-    annotations_json = _safe_json(EXAMPLE_ANNOTATIONS)
-
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>StructPhenotypes Viewer - {escape(gene)}</title>
-  <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
-  <style>
-    :root {{
-      color-scheme: light;
-      font-family: Arial, sans-serif;
-      --border: #d8dee8;
-      --ink: #1f2937;
-      --muted: #607085;
-      --panel: #f7f9fc;
-      --blue: #2459d6;
-    }}
-    body {{
-      margin: 0;
-      color: var(--ink);
-      background: #ffffff;
-    }}
-    header {{
-      padding: 18px 22px 12px;
-      border-bottom: 1px solid var(--border);
-    }}
-    h1 {{
-      margin: 0 0 6px;
-      font-size: 22px;
-      font-weight: 700;
-    }}
-    .subtitle {{
-      margin: 0;
-      color: var(--muted);
-      font-size: 14px;
-    }}
-    .toolbar {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: end;
-      padding: 14px 22px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-    }}
-    label {{
-      display: grid;
-      gap: 5px;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-    }}
-    select,
-    button {{
-      min-width: 180px;
-      height: 36px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: #ffffff;
-      color: var(--ink);
-      font-size: 14px;
-      padding: 0 10px;
-    }}
-    button {{
-      min-width: 110px;
-      cursor: pointer;
-      color: #ffffff;
-      background: var(--blue);
-      border-color: var(--blue);
-      font-weight: 700;
-    }}
-    #viewer {{
-      width: 100%;
-      height: 68vh;
-      min-height: 430px;
-      position: relative;
-    }}
-    #status {{
-      padding: 10px 22px;
-      color: var(--muted);
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      font-size: 14px;
-    }}
-    .details {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 14px;
-      padding: 16px 22px 24px;
-    }}
-    .panel {{
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px;
-    }}
-    .panel h2 {{
-      margin: 0 0 8px;
-      font-size: 15px;
-    }}
-    .panel p,
-    .panel li {{
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.4;
-    }}
-    .panel ul {{
-      margin: 0;
-      padding-left: 18px;
-    }}
-    @media (max-width: 700px) {{
-      select,
-      button {{
-        min-width: 100%;
-      }}
-      .toolbar {{
-        align-items: stretch;
-      }}
-      label {{
-        width: 100%;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <header>
-    <h1>StructPhenotypes Viewer: {escape(gene)}</h1>
-    <p class="subtitle">Local HTML prototype using 3Dmol.js and {escape(structure_label)}.</p>
-  </header>
-
-  <div class="toolbar">
-    <label>
-      Color mode
-      <select id="colorMode">
-        <option value="default">Default protein view</option>
-        <option value="phenotype">ClinVar phenotype</option>
-        <option value="significance">ClinVar significance</option>
-        <option value="missense">AlphaMissense gradient</option>
-      </select>
-    </label>
-    <label>
-      Phenotype filter
-      <select id="phenotypeFilter"></select>
-    </label>
-    <label>
-      Focus residue
-      <select id="focusResidue"></select>
-    </label>
-    <button id="resetView" type="button">Reset view</button>
-  </div>
-
-  <div id="viewer"></div>
-  <div id="status">Loading viewer...</div>
-
-  <section class="details">
-    <div class="panel">
-      <h2>Current Prototype</h2>
-      <p>This page uses preprocessed residue annotations and the best available local structure file.</p>
-    </div>
-    <div class="panel">
-      <h2>Variant Layers</h2>
-      <ul id="variantList"></ul>
-    </div>
-    <div class="panel">
-      <h2>Next Data Hooks</h2>
-      <p>ClinVar residues are preprocessed into residue-level annotations. AlphaMissense scores are currently represented by a stub residue gradient.</p>
-    </div>
-  </section>
-
-  <script>
-    const REPORT = {report_json};
-    const PREPROCESSED_ANNOTATIONS = {preprocessed_json};
-    const PDB_TEXT = {pdb_json};
-    const ANNOTATIONS = {annotations_json};
-
-    let viewer = null;
-
-    function init() {{
-      populateControls();
-      populateVariantList();
-
-      if (!window.$3Dmol) {{
-        setStatus("3Dmol.js did not load. Check your internet connection for the viewer library.");
-        return;
-      }}
-
-      viewer = $3Dmol.createViewer("viewer", {{ backgroundColor: "white" }});
-      viewer.addModel(PDB_TEXT, "pdb");
-      applyStyle();
-      viewer.zoomTo();
-      viewer.render();
-      setStatus("Example protein loaded. Use the dropdowns to switch annotation layers.");
-    }}
-
-    function populateControls() {{
-      const phenotypeSelect = document.getElementById("phenotypeFilter");
-      const phenotypes = Object.keys(PREPROCESSED_ANNOTATIONS.phenotype_counts || {{}}).sort();
-      phenotypeSelect.innerHTML = '<option value="all">All phenotypes</option>' +
-        phenotypes.map((phenotype) => `<option value="${{escapeAttr(phenotype)}}">${{phenotype}}</option>`).join("");
-
-      const residueSelect = document.getElementById("focusResidue");
-      const residues = getResidueAnnotations();
-      residueSelect.innerHTML = '<option value="">No residue focus</option>' +
-        residues
-          .map((annotation) => `<option value="${{annotation.residue}}">Residue ${{annotation.residue}}: ${{annotation.primary_significance || "annotated"}}</option>`)
-          .join("");
-
-      document.getElementById("colorMode").addEventListener("change", applyStyle);
-      phenotypeSelect.addEventListener("change", applyStyle);
-      residueSelect.addEventListener("change", focusResidue);
-      document.getElementById("resetView").addEventListener("click", resetView);
-    }}
-
-    function getResidueAnnotations() {{
-      const residues = PREPROCESSED_ANNOTATIONS.residue_list || [];
-      if (residues.length > 0) {{
-        return residues;
-      }}
-
-      return ANNOTATIONS.clinvar_variants.map((variant) => ({{
-        residue: variant.residue,
-        variant_count: 1,
-        phenotypes: [variant.phenotype],
-        primary_phenotype: variant.phenotype,
-        phenotype_color: variant.color,
-        primary_significance: variant.significance,
-        has_pathogenic: true,
-        max_pathogenicity: 4,
-        pathogenic_color: significanceColor(variant.significance),
-        missense: null,
-      }}));
-    }}
-
-    function populateVariantList() {{
-      const list = document.getElementById("variantList");
-      const residues = getResidueAnnotations();
-      const highlighted = residues.filter((annotation) => annotation.has_pathogenic).slice(0, 100);
-      const displayed = highlighted.length > 0 ? highlighted : residues.slice(0, 100);
-      list.innerHTML = displayed
-        .map((annotation) => `<li>Residue ${{annotation.residue}}: ${{annotation.primary_significance || "annotated"}}, ${{annotation.primary_phenotype || "no phenotype"}} (${{annotation.variant_count}} variants)</li>`)
-        .join("");
-    }}
-
-    function applyStyle() {{
-      if (!viewer) {{
-        return;
-      }}
-
-      const mode = document.getElementById("colorMode").value;
-      const phenotype = document.getElementById("phenotypeFilter").value;
-
-      viewer.setStyle({{}}, {{ cartoon: {{ color: "spectrum" }}, stick: {{ radius: 0.08 }} }});
-
-      if (mode === "phenotype") {{
-        colorClinVarPhenotypes(phenotype);
-        setStatus("Coloring example ClinVar residues by phenotype.");
-      }} else if (mode === "significance") {{
-        colorClinVarSignificance();
-        setStatus("Coloring example ClinVar residues by significance.");
-      }} else if (mode === "missense") {{
-        colorMissenseGradient();
-        setStatus("Coloring example residues by AlphaMissense-like prediction score.");
-      }} else {{
-        setStatus("Default spectrum protein view.");
-      }}
-
-      focusResidue(false);
-      viewer.render();
-    }}
-
-    function colorClinVarPhenotypes(phenotype) {{
-      getResidueAnnotations().forEach((annotation) => {{
-        if (phenotype !== "all" && !annotation.phenotypes.includes(phenotype)) {{
-          return;
-        }}
-        setResidueStyle(annotation.residue, annotation.phenotype_color || "#9ca3af", 0.2);
-      }});
-    }}
-
-    function colorClinVarSignificance() {{
-      getResidueAnnotations().forEach((annotation) => {{
-        if (annotation.max_pathogenicity <= 0) {{
-          return;
-        }}
-        setResidueStyle(annotation.residue, annotation.pathogenic_color || "#999999", 0.2);
-      }});
-    }}
-
-    function colorMissenseGradient() {{
-      getResidueAnnotations().forEach((annotation) => {{
-        if (!annotation.missense) {{
-          return;
-        }}
-        setResidueStyle(annotation.residue, annotation.missense.color || scoreToColor(annotation.missense.score), 0.12);
-      }});
-    }}
-
-    function setResidueStyle(residue, color, radius) {{
-      viewer.setStyle(
-        {{ chain: "A", resi: residue }},
-        {{ cartoon: {{ color }}, stick: {{ color, radius }}, sphere: {{ color, radius: radius * 1.8 }} }}
-      );
-    }}
-
-    function focusResidue(zoom = true) {{
-      if (!viewer) {{
-        return;
-      }}
-
-      const residueValue = document.getElementById("focusResidue").value;
-      if (!residueValue) {{
-        return;
-      }}
-
-      const residue = Number(residueValue);
-      viewer.addStyle({{ chain: "A", resi: residue }}, {{ sphere: {{ color: "#2459d6", radius: 0.55 }} }});
-      if (zoom) {{
-        viewer.zoomTo({{ chain: "A", resi: residue }});
-      }}
-      viewer.render();
-    }}
-
-    function resetView() {{
-      if (!viewer) {{
-        return;
-      }}
-      document.getElementById("focusResidue").value = "";
-      applyStyle();
-      viewer.zoomTo();
-      viewer.render();
-    }}
-
-    function significanceColor(significance) {{
-      const normalized = significance.toLowerCase();
-      if (normalized.includes("pathogenic") && !normalized.includes("likely")) {{
-        return "#b2182b";
-      }}
-      if (normalized.includes("likely pathogenic")) {{
-        return "#ef8a62";
-      }}
-      if (normalized.includes("uncertain")) {{
-        return "#fddbc7";
-      }}
-      return "#999999";
-    }}
-
-    function scoreToColor(score) {{
-      const clamped = Math.max(0, Math.min(1, score));
-      const red = Math.round(255 * clamped);
-      const green = Math.round(180 * (1 - clamped));
-      const blue = Math.round(255 * (1 - clamped));
-      return `rgb(${{red}}, ${{green}}, ${{blue}})`;
-    }}
-
-    function escapeAttr(value) {{
-      return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
-    }}
-
-    function setStatus(message) {{
-      document.getElementById("status").textContent = message;
-    }}
-
-    window.addEventListener("load", init);
-  </script>
-</body>
-</html>
-"""
+    """Legacy renderer retained for compatibility; use _render_html for current viewers."""
+    return _render_html(report, annotations, pdb_text)
 
 
 def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: str) -> str:
@@ -891,6 +553,110 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       display: grid;
       gap: 7px;
       padding-right: 6px;
+    }
+    .query-panel {
+      max-height: calc(100vh - 290px);
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      padding-right: 6px;
+    }
+    .query-row {
+      border: 1px solid #edf1f7;
+      border-radius: 8px;
+      padding: 8px;
+      display: grid;
+      gap: 8px;
+      background: #ffffff;
+    }
+    .query-row.is-placeholder {
+      opacity: 0.58;
+      background: #f8fafc;
+    }
+    .query-row.is-invalid {
+      border-color: #dc2626;
+      background: #fef2f2;
+    }
+    .query-row-top {
+      display: grid;
+      grid-template-columns: 20px 40px 84px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .query-row-top input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+    }
+    .query-row-top input[type="color"] {
+      width: 38px;
+      min-width: 38px;
+      height: 30px;
+      padding: 2px;
+    }
+    .query-size {
+      width: 100%;
+      min-width: 0;
+    }
+    .query-input-wrap {
+      position: relative;
+      min-width: 0;
+    }
+    .query-input {
+      width: 100%;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    .query-row-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .query-error {
+      color: #b91c1c;
+      font-size: 12px;
+    }
+    .query-suggestions {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 15;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+      max-height: 180px;
+      overflow: auto;
+      padding: 4px 0;
+    }
+    .query-suggestion {
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--ink);
+      cursor: pointer;
+      font-family: Consolas, "Courier New", monospace;
+    }
+    .query-suggestion.is-active,
+    .query-suggestion:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .query-examples {
+      margin-top: 12px;
+      display: grid;
+      gap: 4px;
+    }
+    .query-examples code {
+      display: block;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: #f8fafc;
+      border: 1px solid #edf1f7;
+      font-size: 12px;
+      overflow-wrap: anywhere;
     }
     .phenotype-row {
       display: grid;
@@ -1108,16 +874,8 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       </label>
       <label>
         Background opacity
-        <input id="backgroundOpacity" type="range" min="0.05" max="1" step="0.05" value="0.3">
-        <span id="backgroundOpacityValue" class="slider-value">0.30</span>
-      </label>
-      <label>
-        Residue marker size
-        <div class="inline-field">
-          <input id="markerScale" type="range" min="0.5" max="5" step="0.1" value="1.6">
-          <input id="markerScaleText" type="text" value="1.6x" inputmode="decimal" aria-label="Residue marker size value">
-        </div>
-        <span id="markerScaleValue" class="slider-value">1.6x</span>
+        <input id="backgroundOpacity" type="range" min="0.05" max="1" step="0.05" value="0.8">
+        <span id="backgroundOpacityValue" class="slider-value">0.80</span>
       </label>
       <label>
         Contact cutoff
@@ -1141,17 +899,35 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     </aside>
     <div class="control-pane">
       <div class="panel">
-        <h2>Global Pathogenicity</h2>
-        <p>These classes are inherited by phenotype overlays unless you override a class inside a phenotype.</p>
-        <div id="globalPathogenicityControls" class="phenotype-panel"></div>
+        <h2>Query Highlights</h2>
+        <p>Write residue queries to add colored markers without changing the protein coloring underneath.</p>
+        <div id="queryControls" class="query-panel">
+          <div class="query-row">
+            <div class="query-row-top">
+              <input class="query-enabled" type="checkbox" checked disabled>
+              <input class="query-color" type="color" value="#1f77b4" disabled aria-label="Query color">
+              <input class="query-size" type="number" min="0.6" max="50.0" step="0.1" value="5.0" disabled aria-label="Query marker size">
+              <div class="query-input-wrap">
+                <input class="query-input" type="text" spellcheck="false" placeholder="e.g. phenotype CONTAINS 'epileptic'" aria-label="Residue query">
+              </div>
+              <span class="pathogenicity-count">loading</span>
+            </div>
+          </div>
+        </div>
+        <div id="queryExamples" class="query-examples">
+          <p class="legend-note">Queries are residue-level WHERE-style expressions. Strings should be quoted.</p>
+          <p class="legend-note">Use <strong>AND</strong> for intersection, <strong>OR</strong> for union, and <strong>NOT</strong> for negation.</p>
+          <p class="legend-note">Common fields: residue, phenotype, pathogenicity_class, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p>
+          <code>all</code>
+          <code>residue IN (42, 43, 44)</code>
+          <code>residue BETWEEN 100 AND 120</code>
+          <code>function_class = 'gain-of-function'</code>
+          <code>NOT function_class IN ('gain-of-function', 'loss-of-function')</code>
+          <code>phenotype CONTAINS 'epileptic' AND pathogenicity_class = 'pathogenic'</code>
+        </div>
       </div>
       <div class="panel">
-        <h2>Phenotype Sets</h2>
-        <p>Tick phenotypes, then open their pathogenicity options to show multiple classes at once with separate colors.</p>
-        <div id="phenotypeControls" class="phenotype-panel"></div>
-      </div>
-      <div class="panel">
-        <h2>Disease Residue Stats</h2>
+        <h2>Query Match Summary</h2>
         <div id="diseaseStats"></div>
         <h2>Residue Summary</h2>
         <ul id="variantList"></ul>
@@ -1159,7 +935,10 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     </div>
   </section>
 
-  <script>
+  <script type="application/json" id="structpheno-annotations-data">__PREPROCESSED_JSON__</script>
+  <script type="application/json" id="structpheno-pdb-data">__PDB_JSON__</script>
+
+  <script type="text/plain" id="unused-generated-viewer-script">
     const REPORT = __REPORT_JSON__;
     const PREPROCESSED_ANNOTATIONS = __PREPROCESSED_JSON__;
     const PDB_TEXT = __PDB_JSON__;
@@ -1183,43 +962,88 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         { key: "uncertain", label: "Uncertain/conflicting", color: "#fddbc7" },
         { key: "benign", label: "Benign/likely benign", color: "#d1e5f0" },
       ];
-      const PHENOTYPE_LIMIT = 80;
       const CONTACT_NEIGHBORHOOD_LIMIT = 8;
       const CONTACT_CLUSTER_MIN_SIZE = 3;
-
+      const QUERY_ROW_MIN_SIZE = 0.6;
+      const QUERY_ROW_MAX_SIZE = 50.0;
+      const QUERY_EXAMPLES = [
+        "all",
+        "residue = 42",
+        "residue IN (42, 43, 44)",
+        "residue BETWEEN 100 AND 120",
+        "function_class = 'gain-of-function'",
+        "function_class = 'gain-of-function' OR function_class = 'loss-of-function'",
+        "NOT function_class IN ('gain-of-function', 'loss-of-function')",
+        "phenotype CONTAINS 'epileptic encephalopathy' AND pathogenicity_class = 'pathogenic'",
+        "missense_score >= 0.8 AND alphafold_class IN ('confident', 'very high')",
+      ];
       let viewer = null;
       let model = null;
-      let phenotypeEntries = [];
       let residueCenterCache = new Map();
       let contactNetworkLabels = [];
       let currentFocusResidue = null;
       let currentSceneKey = null;
+      let queryRows = [];
+      let queryRowIdCounter = 0;
+      let autocompleteState = {
+        rowId: null,
+        items: [],
+        activeIndex: 0,
+        tokenStart: 0,
+        tokenEnd: 0,
+      };
 
       function init() {
         populateControls();
         populateVariantList();
 
-      if (!window.$3Dmol) {
-        setStatus("3Dmol.js did not load. Check your internet connection for the viewer library.");
-        return;
-      }
+        if (!window.$3Dmol) {
+          setStatus("3Dmol.js did not load from the CDN. Check internet access or open this file in a browser that permits external scripts.");
+          return;
+        }
 
         viewer = $3Dmol.createViewer("viewer", { backgroundColor: "white" });
-        viewer.addModel(PDB_TEXT, "pdb");
-        model = viewer.getModel();
-        applyStyle(true);
+        model = viewer.addModel(PDB_TEXT, "pdb");
+        if (!model && typeof viewer.getModel === "function") {
+          model = viewer.getModel();
+        }
+        renderBasicProtein();
         viewer.zoomTo();
         viewer.render();
-        setStatus("Protein loaded. Choose a base color mode, phenotype sets, or a focused residue.");
+
+        try {
+          applyStyle(true);
+          viewer.zoomTo();
+          viewer.render();
+          setStatus(proteinLoadStatus("Protein loaded. Choose a base color mode, add query highlights, or focus a residue."));
+        } catch (error) {
+          const message = error && error.message ? error.message : String(error);
+          setStatus(proteinLoadStatus(`Protein loaded with the basic style, but annotation styling failed: ${message}`));
+          logError(error);
+        }
+      }
+
+      function renderBasicProtein() {
+        if (!viewer) {
+          return;
+        }
+        viewer.setStyle({}, { cartoon: { color: "#8da0cb", opacity: selectedBackgroundOpacity() } });
+      }
+
+      function proteinLoadStatus(prefix) {
+        const atomCount = model && typeof model.selectedAtoms === "function"
+          ? (model.selectedAtoms({}) || []).length
+          : null;
+        if (atomCount === null) {
+          return `${prefix} Structure text length: ${PDB_TEXT.length.toLocaleString()} characters.`;
+        }
+        return `${prefix} Parsed ${atomCount.toLocaleString()} atoms.`;
       }
 
       function populateControls() {
-        populateGlobalPathogenicityControls();
-        populatePhenotypeControls();
+        populateQueryControls();
         populateResidueFocus();
-        populateDiseaseStats();
         updateBackgroundOpacityLabel();
-        updateMarkerScaleLabel();
         updateContactCutoffLabel();
 
         document.getElementById("baseColorMode").addEventListener("change", () => applyStyle(false));
@@ -1227,14 +1051,6 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         document.getElementById("focusResidue").addEventListener("change", () => handleFocusChange(true));
         document.getElementById("backgroundOpacity").addEventListener("input", () => {
           updateBackgroundOpacityLabel();
-          applyStyle(false);
-        });
-        document.getElementById("markerScale").addEventListener("input", () => {
-          updateMarkerScaleLabel();
-          applyStyle(false);
-        });
-        document.getElementById("markerScaleText").addEventListener("change", () => {
-          syncMarkerScaleFromText();
           applyStyle(false);
         });
         document.getElementById("contactCutoff").addEventListener("input", () => {
@@ -1246,6 +1062,302 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           applyStyle(false);
         });
         document.getElementById("resetView").addEventListener("click", resetView);
+      }
+
+      function populateQueryControls() {
+        initQueryRows();
+        renderQueryControls();
+      }
+
+      function initQueryRows() {
+        queryRows = [createQueryRow(false, ""), createQueryRow(true, "")];
+        autocompleteState = {
+          rowId: null,
+          items: [],
+          activeIndex: 0,
+          tokenStart: 0,
+          tokenEnd: 0,
+        };
+      }
+
+      function createQueryRow(isPlaceholder, queryText) {
+        const activeIndex = queryRows.filter((row) => !row.isPlaceholder).length;
+        return {
+          id: `query-row-${queryRowIdCounter++}`,
+          enabled: !isPlaceholder,
+          color: fallbackColor(activeIndex),
+          size: 5.0,
+          draftSize: "5.0",
+          query: queryText,
+          draftQuery: queryText,
+          isPlaceholder,
+          error: null,
+          matchResidues: [],
+          matchCount: 0,
+        };
+      }
+
+      function renderQueryControls(focusRowId = null, caret = null) {
+        ensureTrailingPlaceholderRow();
+        evaluateQueryRows();
+
+        const panel = document.getElementById("queryControls");
+        const examples = document.getElementById("queryExamples");
+        if (!panel || !examples) {
+          return;
+        }
+
+        panel.innerHTML = queryRows.map((row) => {
+          const countLabel = row.isPlaceholder ? "placeholder" : String(row.matchCount) + " hits";
+          return `
+          <div class="query-row${row.isPlaceholder ? " is-placeholder" : ""}${row.error ? " is-invalid" : ""}" data-row-id="${row.id}">
+            <div class="query-row-top">
+              <input class="query-enabled" type="checkbox" data-row-id="${row.id}" ${row.enabled ? "checked" : ""} ${row.isPlaceholder ? "disabled" : ""}>
+              <input class="query-color" type="color" data-row-id="${row.id}" value="${row.color}" ${row.isPlaceholder ? "disabled" : ""} aria-label="Query color">
+              <input class="query-size" type="number" min="${QUERY_ROW_MIN_SIZE}" max="${QUERY_ROW_MAX_SIZE}" step="0.1" value="${escapeAttr(row.draftSize ?? Number(row.size).toFixed(1))}" data-row-id="${row.id}" ${row.isPlaceholder ? "disabled" : ""} aria-label="Query marker size">
+              <div class="query-input-wrap">
+                <input class="query-input" type="text" spellcheck="false" placeholder="${row.isPlaceholder ? "Type a query to activate this row" : "e.g. phenotype CONTAINS 'epileptic'"}" value="${escapeAttr(row.draftQuery ?? row.query)}" data-row-id="${row.id}" aria-label="Residue query">
+                ${renderAutocomplete(row.id)}
+              </div>
+              <span class="pathogenicity-count">${escapeHtml(countLabel)}</span>
+            </div>
+            <div class="query-row-meta">
+              <span>${row.isPlaceholder ? "Placeholder row" : (row.enabled ? "Enabled" : "Disabled")}</span>
+              ${row.error ? `<span class="query-error">${escapeHtml(row.error)}</span>` : ""}
+            </div>
+          </div>
+        `;
+        }).join("");
+
+        examples.innerHTML = queryDocumentationHtml();
+
+        panel.querySelectorAll(".query-enabled").forEach((input) => {
+          input.addEventListener("change", handleQueryRowToggle);
+        });
+        panel.querySelectorAll(".query-color").forEach((input) => {
+          input.addEventListener("input", handleQueryRowColorChange);
+        });
+        panel.querySelectorAll(".query-size").forEach((input) => {
+          input.addEventListener("input", handleQueryRowSizeChange);
+          input.addEventListener("keydown", handleQueryRowSizeKeydown);
+        });
+        panel.querySelectorAll(".query-input").forEach((input) => {
+          input.addEventListener("input", handleQueryRowInput);
+          input.addEventListener("keydown", handleQueryInputKeydown);
+          input.addEventListener("blur", handleQueryInputBlur);
+        });
+        panel.querySelectorAll(".query-suggestion").forEach((item) => {
+          item.addEventListener("mousedown", handleAutocompleteSelection);
+        });
+
+        if (focusRowId) {
+          const input = panel.querySelector(`.query-input[data-row-id="${focusRowId}"]`);
+          if (input) {
+            input.focus();
+            if (caret !== null) {
+              const safeCaret = Math.max(0, Math.min(caret, input.value.length));
+              input.setSelectionRange(safeCaret, safeCaret);
+            }
+          }
+        }
+      }
+
+      function renderAutocomplete(rowId) {
+        if (autocompleteState.rowId !== rowId || autocompleteState.items.length === 0) {
+          return "";
+        }
+        return `
+          <div class="query-suggestions">
+            ${autocompleteState.items.map((item, index) => `
+              <div class="query-suggestion${index === autocompleteState.activeIndex ? " is-active" : ""}" data-row-id="${rowId}" data-index="${index}">
+                ${escapeHtml(item)}
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      function queryDocumentationHtml() {
+        return `
+          <p class="legend-note">Queries are residue-level WHERE-style expressions. They match residues, not individual variant records.</p>
+          <p class="legend-note"><strong>Set logic:</strong> use <code>OR</code> for union, <code>AND</code> for intersection, <code>NOT</code> for negation, and parentheses for grouping.</p>
+          <p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p>
+          <p class="legend-note"><strong>Operators:</strong> =, !=, &lt;, &lt;=, &gt;, &gt;=, IN (...), BETWEEN ... AND ..., CONTAINS.</p>
+          <p class="legend-note"><strong>Common values:</strong> pathogenicity_class is 'pathogenic', 'likely-pathogenic', 'uncertain', or 'benign'. function_class is 'gain-of-function' or 'loss-of-function'.</p>
+          <p class="legend-note">Examples:</p>
+          ${QUERY_EXAMPLES.map((example) => `<code>${escapeHtml(example)}</code>`).join("")}
+        `;
+      }
+
+      function ensureTrailingPlaceholderRow() {
+        const nonPlaceholder = queryRows.filter((row) => !row.isPlaceholder);
+        const placeholder = queryRows.filter((row) => row.isPlaceholder);
+        if (placeholder.length === 0) {
+          queryRows.push(createQueryRow(true, ""));
+          return;
+        }
+        const trailingPlaceholder = placeholder[placeholder.length - 1];
+        queryRows = nonPlaceholder.concat([trailingPlaceholder]);
+      }
+
+      function findQueryRow(rowId) {
+        return queryRows.find((row) => row.id === rowId) || null;
+      }
+
+      function handleQueryRowToggle(event) {
+        const row = findQueryRow(event.target.dataset.rowId);
+        if (!row || row.isPlaceholder) {
+          return;
+        }
+        row.enabled = Boolean(event.target.checked);
+        applyStyle(false);
+      }
+
+      function handleQueryRowColorChange(event) {
+        const row = findQueryRow(event.target.dataset.rowId);
+        if (!row || row.isPlaceholder) {
+          return;
+        }
+        row.color = event.target.value || row.color;
+        applyStyle(false);
+      }
+
+      function handleQueryRowSizeChange(event) {
+        const row = findQueryRow(event.target.dataset.rowId);
+        if (!row || row.isPlaceholder) {
+          return;
+        }
+        row.draftSize = event.target.value;
+      }
+
+      function handleQueryRowSizeKeydown(event) {
+        if (event.key !== "Enter") {
+          return;
+        }
+        event.preventDefault();
+        const row = findQueryRow(event.target.dataset.rowId);
+        if (!row || row.isPlaceholder) {
+          return;
+        }
+        row.draftSize = event.target.value;
+        row.size = normalizeQueryRowSize(event.target.value);
+        row.draftSize = row.size.toFixed(1);
+        event.target.value = row.draftSize;
+        applyStyle(false);
+      }
+
+      function handleQueryRowInput(event) {
+        const rowId = event.target.dataset.rowId;
+        const row = findQueryRow(rowId);
+        if (!row) {
+          return;
+        }
+        row.draftQuery = event.target.value;
+        updateAutocompleteForInput(event.target);
+      }
+
+      function commitQueryRowInput(input) {
+        const rowId = input.dataset.rowId;
+        const row = findQueryRow(rowId);
+        if (!row) {
+          return;
+        }
+        row.draftQuery = input.value;
+        row.query = input.value;
+        if (row.isPlaceholder && row.query.trim()) {
+          row.isPlaceholder = false;
+          row.enabled = true;
+          queryRows.push(createQueryRow(true, ""));
+        }
+        renderQueryControls(rowId, inputCaret(input, row.query.length));
+        applyStyle(false);
+      }
+
+      function handleQueryInputFocus(event) {
+        updateAutocompleteForInput(event.target);
+        renderQueryControls(event.target.dataset.rowId, inputCaret(event.target, event.target.value.length));
+      }
+
+      function handleQueryInputBlur() {
+        window.setTimeout(() => {
+          autocompleteState = {
+            rowId: null,
+            items: [],
+            activeIndex: 0,
+            tokenStart: 0,
+            tokenEnd: 0,
+          };
+          renderQueryControls();
+        }, 120);
+      }
+
+      function handleQueryInputKeydown(event) {
+        const suggestionsActive = autocompleteState.rowId === event.target.dataset.rowId && autocompleteState.items.length > 0;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitQueryRowInput(event.target);
+        } else if (suggestionsActive && event.key === "ArrowDown") {
+          event.preventDefault();
+          autocompleteState.activeIndex = (autocompleteState.activeIndex + 1) % autocompleteState.items.length;
+          renderQueryControls(event.target.dataset.rowId, inputCaret(event.target, event.target.value.length));
+        } else if (suggestionsActive && event.key === "ArrowUp") {
+          event.preventDefault();
+          autocompleteState.activeIndex = (autocompleteState.activeIndex - 1 + autocompleteState.items.length) % autocompleteState.items.length;
+          renderQueryControls(event.target.dataset.rowId, inputCaret(event.target, event.target.value.length));
+        } else if (suggestionsActive && event.key === "Tab") {
+          event.preventDefault();
+          applyAutocompleteChoice(event.target.dataset.rowId, autocompleteState.items[autocompleteState.activeIndex]);
+        } else if (suggestionsActive && event.key === "Escape") {
+          autocompleteState.items = [];
+          autocompleteState.rowId = null;
+          renderQueryControls(event.target.dataset.rowId, inputCaret(event.target, event.target.value.length));
+        }
+      }
+
+      function inputCaret(input, fallback) {
+        return typeof input.selectionStart === "number" ? input.selectionStart : fallback;
+      }
+
+      function handleAutocompleteSelection(event) {
+        const rowId = event.currentTarget.dataset.rowId;
+        const index = Number(event.currentTarget.dataset.index);
+        if (!Number.isFinite(index) || !autocompleteState.items[index]) {
+          return;
+        }
+        applyAutocompleteChoice(rowId, autocompleteState.items[index]);
+      }
+
+      function applyAutocompleteChoice(rowId, suggestion) {
+        const row = findQueryRow(rowId);
+        if (!row) {
+          return;
+        }
+        const query = row.query;
+        const tokenStart = autocompleteState.tokenStart;
+        row.query = `${query.slice(0, autocompleteState.tokenStart)}${suggestion}${query.slice(autocompleteState.tokenEnd)}`;
+        if (row.isPlaceholder && row.query.trim()) {
+          row.isPlaceholder = false;
+          row.enabled = true;
+          queryRows.push(createQueryRow(true, ""));
+        }
+        autocompleteState = {
+          rowId: rowId,
+          items: [],
+          activeIndex: 0,
+          tokenStart: 0,
+          tokenEnd: 0,
+        };
+        const nextCaret = tokenStart + suggestion.length;
+        renderQueryControls(rowId, nextCaret);
+        applyStyle(false);
+      }
+
+      function normalizeQueryRowSize(value) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) {
+          return 5.0;
+        }
+        return Math.max(QUERY_ROW_MIN_SIZE, Math.min(QUERY_ROW_MAX_SIZE, parsed));
       }
 
       function populateGlobalPathogenicityControls() {
@@ -1267,6 +1379,42 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         });
       }
 
+      function populateFunctionControls() {
+        const panel = document.getElementById("functionControls");
+        if (!panel) {
+          return;
+        }
+        const counts = PREPROCESSED_ANNOTATIONS.function_class_counts || {};
+        const available = FUNCTION_CLASSES.filter((functionClass) => Number(counts[functionClass.key] || 0) > 0);
+        const neitherCount = functionClassResidueCount("neither");
+        if (available.length === 0) {
+          panel.innerHTML = neitherCount > 0 ? `
+            <label class="pathogenicity-row">
+              <input class="function-check" type="checkbox" data-class="neither" checked>
+              <span>Neither</span>
+              <span class="pathogenicity-count">${neitherCount} residues</span>
+            </label>
+          ` : "<p>No experimental gain/loss-of-function calls were found for this gene.</p>";
+        } else {
+          panel.innerHTML = available.map((functionClass) => `
+            <label class="pathogenicity-row">
+              <input class="function-check" type="checkbox" data-class="${functionClass.key}" checked>
+              <span>${escapeHtml(functionClass.label)}</span>
+              <span class="pathogenicity-count">${functionClassResidueCount(functionClass.key)} residues</span>
+            </label>
+          `).join("") + `
+            <label class="pathogenicity-row">
+              <input class="function-check" type="checkbox" data-class="neither">
+              <span>Neither</span>
+              <span class="pathogenicity-count">${neitherCount} residues</span>
+            </label>
+          `;
+        }
+        panel.querySelectorAll("input").forEach((input) => {
+          input.addEventListener("change", handleOverlayFilterChange);
+        });
+      }
+
       function populatePhenotypeControls() {
         const panel = document.getElementById("phenotypeControls");
       const counts = PREPROCESSED_ANNOTATIONS.phenotype_counts || {};
@@ -1285,7 +1433,13 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         return;
       }
 
-        panel.innerHTML = phenotypeEntries.map((entry, index) => `
+        panel.innerHTML = `
+          <label class="pathogenicity-row">
+            <input id="selectAllPhenotypes" type="checkbox">
+            <span>Select all phenotypes</span>
+            <span class="pathogenicity-count">${phenotypeEntries.length} sets</span>
+          </label>
+        ` + phenotypeEntries.map((entry, index) => `
           <div class="phenotype-row has-options" data-index="${index}">
             <input class="phenotype-check" type="checkbox" data-index="${index}">
             <input class="phenotype-color" type="color" data-index="${index}" value="${entry.color}">
@@ -1304,6 +1458,9 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
               input.dataset.customized = "true";
             });
           }
+          if (input.id === "selectAllPhenotypes") {
+            return;
+          }
           input.addEventListener("change", handleOverlayFilterChange);
         });
         panel.querySelectorAll(".phenotype-check").forEach((checkbox) => {
@@ -1312,6 +1469,11 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         panel.querySelectorAll(".phenotype-options-toggle").forEach((button) => {
           button.addEventListener("click", () => togglePhenotypeOptions(Number(button.dataset.index)));
         });
+        const selectAll = document.getElementById("selectAllPhenotypes");
+        if (selectAll) {
+          selectAll.addEventListener("change", handleSelectAllPhenotypesChange);
+        }
+        syncSelectAllPhenotypesState();
       }
 
       function phenotypePathogenicityOptions(index, phenotype) {
@@ -1334,8 +1496,10 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       function syncPhenotypeOptionsVisibility(index) {
         const checkbox = document.querySelector(`.phenotype-check[data-index="${index}"]`);
         const options = document.querySelector(`.phenotype-options[data-index="${index}"]`);
-        if (options && checkbox?.checked) {
+        if (options && checkbox && checkbox.checked) {
           options.classList.add("is-visible");
+        } else if (options) {
+          options.classList.remove("is-visible");
         }
       }
 
@@ -1344,6 +1508,33 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         if (options) {
           options.classList.toggle("is-visible");
         }
+      }
+
+      function handleSelectAllPhenotypesChange(event) {
+        const checked = Boolean(event && event.target && event.target.checked);
+        document.querySelectorAll(".phenotype-check").forEach((checkbox) => {
+          checkbox.checked = checked;
+          syncPhenotypeOptionsVisibility(Number(checkbox.dataset.index));
+          if (!checked) {
+            const options = document.querySelector(`.phenotype-options[data-index="${checkbox.dataset.index}"]`);
+            if (options) {
+              options.classList.remove("is-visible");
+            }
+          }
+        });
+        syncSelectAllPhenotypesState();
+        handleOverlayFilterChange();
+      }
+
+      function syncSelectAllPhenotypesState() {
+        const selectAll = document.getElementById("selectAllPhenotypes");
+        const checkboxes = Array.from(document.querySelectorAll(".phenotype-check"));
+        if (!selectAll || checkboxes.length === 0) {
+          return;
+        }
+        const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+        selectAll.checked = checkedCount > 0 && checkedCount === checkboxes.length;
+        selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
       }
 
     function populateResidueFocus() {
@@ -1359,94 +1550,641 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       return PREPROCESSED_ANNOTATIONS.residue_list || [];
     }
 
-      function selectedPhenotypes() {
-        const selected = new Map();
-      document.querySelectorAll(".phenotype-check:checked").forEach((checkbox) => {
-        const index = Number(checkbox.dataset.index);
-        const entry = phenotypeEntries[index];
-        const colorInput = document.querySelector(`.phenotype-color[data-index="${index}"]`);
-        if (entry && colorInput) {
-          selected.set(entry.name, {
-            color: colorInput.value,
-            usePathogenicityColors: Boolean(document.querySelector(`.phenotype-use-pathogenicity-colors[data-index="${index}"]`)?.checked),
-            classes: selectedPhenotypeClasses(index),
-          });
+      function evaluateQueryRows() {
+        queryRows.forEach((row) => {
+          row.error = null;
+          row.matchResidues = [];
+          row.matchCount = 0;
+          if (row.isPlaceholder || !row.query.trim()) {
+            return;
+          }
+          try {
+            const predicate = compileResidueQuery(row.query);
+            const matches = getResidueAnnotations()
+              .filter((annotation) => predicate(annotation))
+              .map((annotation) => annotation.residue);
+            row.matchResidues = matches;
+            row.matchCount = matches.length;
+          } catch (error) {
+            row.error = error instanceof Error ? error.message : String(error);
+          }
+        });
+      }
+
+      function activeQueryRows() {
+        evaluateQueryRows();
+        return queryRows.filter((row) => !row.isPlaceholder && row.enabled && row.query.trim() && !row.error);
+      }
+
+      function filteredResidueAnnotations() {
+        const uniqueResidues = new Set();
+        activeQueryRows().forEach((row) => {
+          row.matchResidues.forEach((residue) => uniqueResidues.add(residue));
+        });
+        return Array.from(uniqueResidues)
+          .map((residue) => annotationForResidue(residue))
+          .filter(Boolean)
+          .sort((left, right) => left.residue - right.residue);
+      }
+
+      function queryMatchEntriesForResidue(annotation) {
+        return activeQueryRows().filter((row) => row.matchResidues.includes(annotation.residue));
+      }
+
+      function queryMarkerRadius(annotation, rowSize) {
+        const size = normalizeQueryRowSize(rowSize);
+        const variantScale = annotation ? Math.min(1.0 + Math.log2((annotation.variant_count || 0) + 1) * 0.16, 1.8) : 1.0;
+        return Math.max(0.18, size * 0.16 * variantScale);
+      }
+
+      function addQueryMarkers() {
+        const rows = activeQueryRows();
+        if (rows.length === 0) {
+          return;
         }
-      });
-        return selected;
+        const uniqueResidues = filteredResidueAnnotations();
+        uniqueResidues.forEach((annotation) => {
+          const matchingRows = rows.filter((row) => row.matchResidues.includes(annotation.residue));
+          if (matchingRows.length === 0) {
+            return;
+          }
+          matchingRows.forEach((row, index) => {
+            const radius = queryMarkerRadius(annotation, row.size);
+            styleResidueMarker(
+              annotation.residue,
+              row.color,
+              1.0,
+              radius,
+              phenotypeMarkerCenter(annotation.residue, `query:${row.id}`, index, matchingRows.length, radius)
+            );
+          });
+        });
+      }
+
+      function querySummaryStats() {
+        const rows = activeQueryRows();
+        const unique = new Set();
+        rows.forEach((row) => row.matchResidues.forEach((residue) => unique.add(residue)));
+        return {
+          activeRows: rows,
+          uniqueResidueCount: unique.size,
+        };
+      }
+
+      function queryFieldValue(annotation, field) {
+        const normalizedField = String(field || "").toLowerCase();
+        if (normalizedField === "residue") {
+          return Number(annotation.residue);
+        }
+        if (normalizedField === "variant_count") {
+          return Number(annotation.variant_count || 0);
+        }
+        if (normalizedField === "primary_phenotype") {
+          return annotation.primary_phenotype || null;
+        }
+        if (normalizedField === "phenotype") {
+          return annotation.phenotypes || [];
+        }
+        if (normalizedField === "primary_significance") {
+          return annotation.primary_significance || null;
+        }
+        if (normalizedField === "pathogenicity_class") {
+          return annotationPathogenicityClass(annotation);
+        }
+        if (normalizedField === "has_pathogenic") {
+          return Boolean(annotation.has_pathogenic);
+        }
+        if (normalizedField === "function_class") {
+          return annotation.function_classes || [];
+        }
+        if (normalizedField === "missense_score") {
+          return annotation.missense ? Number(annotation.missense.score) : null;
+        }
+        if (normalizedField === "missense_class") {
+          return annotation.missense ? annotation.missense.class : null;
+        }
+        if (normalizedField === "alphafold_score") {
+          return annotation.alphafold_confidence ? Number(annotation.alphafold_confidence.score) : null;
+        }
+        if (normalizedField === "alphafold_class") {
+          return annotation.alphafold_confidence ? annotation.alphafold_confidence.class : null;
+        }
+        throw new Error(`Unknown field '${field}'`);
+      }
+
+      function annotationPathogenicityClass(annotation) {
+        if (!Number(annotation.variant_count || 0)) {
+          return null;
+        }
+        return annotation.pathogenicity_class || significanceClassKey(annotation.primary_significance || "Benign");
+      }
+
+      function compileResidueQuery(queryText) {
+        const tokens = tokenizeQuery(queryText);
+        if (tokens.length === 0) {
+          throw new Error("Enter a query.");
+        }
+        const parser = createQueryParser(tokens);
+        const ast = parser.parseExpression();
+        parser.expectEnd();
+        return (annotation) => Boolean(evaluateQueryAst(ast, annotation));
+      }
+
+      function tokenizeQuery(queryText) {
+        const tokens = [];
+        let index = 0;
+        while (index < queryText.length) {
+          const char = queryText[index];
+          if (/\s/.test(char)) {
+            index += 1;
+            continue;
+          }
+          if (char === "(" || char === ")" || char === ",") {
+            tokens.push({ type: char, value: char });
+            index += 1;
+            continue;
+          }
+          if ((char === "!" || char === "<" || char === ">") && queryText[index + 1] === "=") {
+            tokens.push({ type: "operator", value: `${char}=` });
+            index += 2;
+            continue;
+          }
+          if (char === "=" || char === "<" || char === ">") {
+            tokens.push({ type: "operator", value: char });
+            index += 1;
+            continue;
+          }
+          if (char === "'" || char === "\"") {
+            const quote = char;
+            let cursor = index + 1;
+            let value = "";
+            while (cursor < queryText.length && queryText[cursor] !== quote) {
+              value += queryText[cursor];
+              cursor += 1;
+            }
+            if (cursor >= queryText.length) {
+              throw new Error("Unterminated string literal.");
+            }
+            tokens.push({ type: "string", value });
+            index = cursor + 1;
+            continue;
+          }
+          const match = /^[A-Za-z_][A-Za-z0-9_-]*/.exec(queryText.slice(index));
+          if (match) {
+            const value = match[0];
+            if (/^(true|false)$/i.test(value)) {
+              tokens.push({ type: "boolean", value: value.toLowerCase() === "true" });
+            } else {
+              tokens.push({ type: "word", value });
+            }
+            index += value.length;
+            continue;
+          }
+          const numberMatch = /^\d+(?:\.\d+)?/.exec(queryText.slice(index));
+          if (numberMatch) {
+            tokens.push({ type: "number", value: Number(numberMatch[0]) });
+            index += numberMatch[0].length;
+            continue;
+          }
+          throw new Error(`Unexpected token near '${queryText.slice(index, index + 12)}'.`);
+        }
+        return tokens;
+      }
+
+      function createQueryParser(tokens) {
+        let cursor = 0;
+
+        function peek(offset = 0) {
+          return tokens[cursor + offset] || null;
+        }
+
+        function consume() {
+          const token = tokens[cursor];
+          cursor += 1;
+          return token;
+        }
+
+        function matchesWord(word) {
+          const token = peek();
+          return token && token.type === "word" && token.value.toUpperCase() === word;
+        }
+
+        function parseExpression() {
+          return parseOr();
+        }
+
+        function parseOr() {
+          let node = parseAnd();
+          while (matchesWord("OR")) {
+            consume();
+            node = { type: "or", left: node, right: parseAnd() };
+          }
+          return node;
+        }
+
+        function parseAnd() {
+          let node = parseNot();
+          while (matchesWord("AND")) {
+            consume();
+            node = { type: "and", left: node, right: parseNot() };
+          }
+          return node;
+        }
+
+        function parseNot() {
+          if (matchesWord("NOT")) {
+            consume();
+            return { type: "not", value: parseNot() };
+          }
+          return parsePrimary();
+        }
+
+        function parsePrimary() {
+          const token = peek();
+          if (!token) {
+            throw new Error("Unexpected end of query.");
+          }
+          if (token.type === "(") {
+            consume();
+            const expr = parseExpression();
+            expect(")");
+            return expr;
+          }
+          if (token.type === "word" && token.value.toLowerCase() === "all") {
+            consume();
+            return { type: "literal", value: true };
+          }
+          return parsePredicate();
+        }
+
+        function parsePredicate() {
+          const fieldToken = consume();
+          if (!fieldToken || fieldToken.type !== "word") {
+            throw new Error("Expected a field name.");
+          }
+          const field = fieldToken.value;
+          if (matchesWord("BETWEEN")) {
+            consume();
+            const start = parseValue();
+            if (!matchesWord("AND")) {
+              throw new Error("BETWEEN requires AND.");
+            }
+            consume();
+            const end = parseValue();
+            return { type: "between", field, start, end };
+          }
+          if (matchesWord("IN")) {
+            consume();
+            expect("(");
+            const values = [];
+            while (peek() && peek().type !== ")") {
+              values.push(parseValue());
+              if (peek() && peek().type === ",") {
+                consume();
+              } else {
+                break;
+              }
+            }
+            expect(")");
+            return { type: "in", field, values };
+          }
+          if (matchesWord("CONTAINS")) {
+            consume();
+            return { type: "contains", field, value: parseValue() };
+          }
+          const operatorToken = consume();
+          if (!operatorToken || operatorToken.type !== "operator") {
+            throw new Error(`Expected an operator after '${field}'.`);
+          }
+          return { type: "compare", field, operator: operatorToken.value, value: parseValue() };
+        }
+
+        function parseValue() {
+          const token = consume();
+          if (!token) {
+            throw new Error("Expected a value.");
+          }
+          if (token.type === "number" || token.type === "string" || token.type === "boolean") {
+            return token.value;
+          }
+          if (token.type === "word") {
+            return token.value;
+          }
+          throw new Error("Expected a literal value.");
+        }
+
+        function expect(type) {
+          const token = consume();
+          if (!token || token.type !== type) {
+            throw new Error(`Expected '${type}'.`);
+          }
+        }
+
+        function expectEnd() {
+          if (cursor < tokens.length) {
+            throw new Error(`Unexpected token '${tokens[cursor].value}'.`);
+          }
+        }
+
+        return {
+          parseExpression,
+          expectEnd,
+        };
+      }
+
+      function evaluateQueryAst(ast, annotation) {
+        if (ast.type === "literal") {
+          return ast.value;
+        }
+        if (ast.type === "or") {
+          return evaluateQueryAst(ast.left, annotation) || evaluateQueryAst(ast.right, annotation);
+        }
+        if (ast.type === "and") {
+          return evaluateQueryAst(ast.left, annotation) && evaluateQueryAst(ast.right, annotation);
+        }
+        if (ast.type === "not") {
+          return !evaluateQueryAst(ast.value, annotation);
+        }
+        if (ast.type === "compare") {
+          const fieldValue = queryFieldValue(annotation, ast.field);
+          return compareFieldValue(fieldValue, ast.operator, ast.value);
+        }
+        if (ast.type === "contains") {
+          return containsFieldValue(queryFieldValue(annotation, ast.field), ast.value);
+        }
+        if (ast.type === "in") {
+          return inFieldValue(queryFieldValue(annotation, ast.field), ast.values);
+        }
+        if (ast.type === "between") {
+          return betweenFieldValue(queryFieldValue(annotation, ast.field), ast.start, ast.end);
+        }
+        return false;
+      }
+
+      function compareFieldValue(fieldValue, operator, rawValue) {
+        if (fieldValue === null || fieldValue === undefined) {
+          return false;
+        }
+        if (Array.isArray(fieldValue)) {
+          if (operator === "=") {
+            return fieldValue.some((value) => valuesEqual(value, rawValue));
+          }
+          if (operator === "!=") {
+            return fieldValue.every((value) => !valuesEqual(value, rawValue));
+          }
+          return false;
+        }
+        const left = normalizeComparable(fieldValue);
+        const right = normalizeComparable(rawValue);
+        if (operator === "=") {
+          return valuesEqual(left, right);
+        }
+        if (operator === "!=") {
+          return !valuesEqual(left, right);
+        }
+        if (typeof left === "number" && typeof right === "number") {
+          if (operator === "<") {
+            return left < right;
+          }
+          if (operator === "<=") {
+            return left <= right;
+          }
+          if (operator === ">") {
+            return left > right;
+          }
+          if (operator === ">=") {
+            return left >= right;
+          }
+        }
+        return false;
+      }
+
+      function containsFieldValue(fieldValue, rawValue) {
+        const needle = String(rawValue || "").toLowerCase();
+        if (!needle) {
+          return false;
+        }
+        if (Array.isArray(fieldValue)) {
+          return fieldValue.some((value) => String(value || "").toLowerCase().includes(needle));
+        }
+        return String(fieldValue || "").toLowerCase().includes(needle);
+      }
+
+      function inFieldValue(fieldValue, values) {
+        if (Array.isArray(fieldValue)) {
+          return fieldValue.some((value) => values.some((candidate) => valuesEqual(value, candidate)));
+        }
+        return values.some((candidate) => valuesEqual(fieldValue, candidate));
+      }
+
+      function betweenFieldValue(fieldValue, start, end) {
+        if (fieldValue === null || fieldValue === undefined || Array.isArray(fieldValue)) {
+          return false;
+        }
+        const value = normalizeComparable(fieldValue);
+        const min = normalizeComparable(start);
+        const max = normalizeComparable(end);
+        if (typeof value === "number" && typeof min === "number" && typeof max === "number") {
+          return value >= min && value <= max;
+        }
+        if (typeof value === "string" && typeof min === "string" && typeof max === "string") {
+          return value >= min && value <= max;
+        }
+        return false;
+      }
+
+      function valuesEqual(left, right) {
+        if (typeof left === "number" || typeof right === "number") {
+          return Number(left) === Number(right);
+        }
+        if (typeof left === "boolean" || typeof right === "boolean") {
+          return Boolean(left) === Boolean(right);
+        }
+        return String(left || "").toLowerCase() === String(right || "").toLowerCase();
+      }
+
+      function normalizeComparable(value) {
+        if (typeof value === "number" || typeof value === "boolean") {
+          return value;
+        }
+        if (value === null || value === undefined) {
+          return value;
+        }
+        if (/^-?\d+(?:\.\d+)?$/.test(String(value))) {
+          return Number(value);
+        }
+        if (/^(true|false)$/i.test(String(value))) {
+          return String(value).toLowerCase() === "true";
+        }
+        return String(value).toLowerCase();
+      }
+
+      function queryAutocompleteValues() {
+        const phenotypeValues = Object.keys(PREPROCESSED_ANNOTATIONS.phenotype_counts || {}).map((value) => `'${value}'`);
+        const significanceValues = Array.from(new Set(
+          getResidueAnnotations()
+            .map((annotation) => annotation.primary_significance)
+            .filter(Boolean)
+        )).map((value) => `'${value}'`);
+        const functionValues = ["'gain-of-function'", "'loss-of-function'"];
+        const missenseClassValues = ["'benign'", "'ambiguous'", "'pathogenic'", "'stub'"];
+        const alphafoldClassValues = ["'very low'", "'low'", "'confident'", "'very high'"];
+        return [
+          "all",
+          "residue",
+          "variant_count",
+          "primary_phenotype",
+          "phenotype",
+          "primary_significance",
+          "pathogenicity_class",
+          "has_pathogenic",
+          "function_class",
+          "missense_score",
+          "missense_class",
+          "alphafold_score",
+          "alphafold_class",
+          "=",
+          "!=",
+          "<",
+          "<=",
+          ">",
+          ">=",
+          "AND",
+          "OR",
+          "NOT",
+          "IN",
+          "BETWEEN",
+          "CONTAINS",
+          "true",
+          "false",
+          "'pathogenic'",
+          "'likely-pathogenic'",
+          "'uncertain'",
+          "'benign'",
+          ...functionValues,
+          ...missenseClassValues,
+          ...alphafoldClassValues,
+          ...significanceValues,
+          ...phenotypeValues,
+        ];
+      }
+
+      function updateAutocompleteForInput(input) {
+        const rowId = input.dataset.rowId;
+        const cursor = inputCaret(input, input.value.length);
+        const token = currentQueryToken(input.value, cursor);
+        const prefix = token.text.toLowerCase();
+        const suggestions = queryAutocompleteValues()
+          .filter((candidate, index, values) => values.indexOf(candidate) === index)
+          .filter((candidate) => !prefix || candidate.toLowerCase().includes(prefix))
+          .slice(0, 12);
+        autocompleteState = {
+          rowId,
+          items: suggestions,
+          activeIndex: 0,
+          tokenStart: token.start,
+          tokenEnd: token.end,
+        };
+      }
+
+      function currentQueryToken(query, cursor) {
+        let start = cursor;
+        let end = cursor;
+        while (start > 0 && /[A-Za-z0-9_'"-]/.test(query[start - 1])) {
+          start -= 1;
+        }
+        while (end < query.length && /[A-Za-z0-9_'"-]/.test(query[end])) {
+          end += 1;
+        }
+        return {
+          text: query.slice(start, end),
+          start,
+          end,
+        };
+      }
+
+      function selectedPhenotypes() {
+        return new Map();
       }
 
       function selectedPhenotypeClasses(index) {
-        const classes = new Map();
-        PATHOGENICITY_CLASSES.forEach((pathClass) => {
-          const checkbox = document.querySelector(`.phenotype-pathogenicity-check[data-index="${index}"][data-class="${pathClass.key}"]`);
-          const colorInput = document.querySelector(`.phenotype-pathogenicity-color[data-index="${index}"][data-class="${pathClass.key}"]`);
-          classes.set(pathClass.key, {
-            enabled: Boolean(checkbox?.checked),
-            color: colorInput?.value || selectedGlobalPathogenicityColor(pathClass.key),
-          });
-        });
-        return classes;
+        return new Map();
+      }
+
+      function availableFunctionClassKeys() {
+        return [];
+      }
+
+      function selectedFunctionClasses() {
+        return new Set();
+      }
+
+      function functionFilterIsActive() {
+        return false;
+      }
+
+      function variantMatchesFunctionFilter(variant) {
+        return true;
+      }
+
+      function filteredVariants(annotation) {
+        return (annotation.variants || []).filter((variant) => variantMatchesFunctionFilter(variant));
+      }
+
+      function annotationMatchesFunctionFilter(annotation) {
+        return true;
+      }
+
+      function annotationHasKnownFunction(annotation) {
+        if ((annotation.function_classes || []).length > 0) {
+          return true;
+        }
+        return (annotation.variants || []).some((variant) => (variant.function_classes || []).length > 0);
+      }
+
+      function annotationMatchesSelectedPhenotypes(annotation, phenotypes = selectedPhenotypes()) {
+        return true;
+      }
+
+      function annotationMatchesActiveFilters(annotation, phenotypes = selectedPhenotypes()) {
+        return true;
       }
 
     function populateVariantList() {
       const list = document.getElementById("variantList");
-      const residues = getResidueAnnotations();
-      const highlighted = residues.filter((annotation) => annotation.has_pathogenic).slice(0, 100);
-      const displayed = highlighted.length > 0 ? highlighted : residues.slice(0, 100);
+      const residues = filteredResidueAnnotations();
+      const displayed = residues.slice(0, 120);
+      if (displayed.length === 0) {
+        list.innerHTML = "<li>No residues match the active queries.</li>";
+        return;
+      }
       list.innerHTML = displayed
-        .map((annotation) => `<li>Residue ${annotation.residue}: ${annotation.primary_significance || "annotated"}, ${annotation.primary_phenotype || "no phenotype"} (${annotation.variant_count || 0} variants)</li>`)
+        .map((annotation) => `<li>Residue ${annotation.residue}: ${annotation.primary_significance || "annotated"}, ${annotation.primary_phenotype || "no phenotype"} (${queryMatchEntriesForResidue(annotation).length} query hits)</li>`)
         .join("");
     }
 
       function populateDiseaseStats() {
         const panel = document.getElementById("diseaseStats");
-        const residues = getResidueAnnotations();
-        if (!panel || residues.length === 0) {
-          if (panel) {
-            panel.innerHTML = "<p>No residue-level annotations available for stats.</p>";
-          }
+        if (!panel) {
           return;
         }
-
-        const annotated = residues.filter((annotation) => Number(annotation.variant_count) > 0);
-        const pathogenic = annotated.filter((annotation) => Number(annotation.max_pathogenicity) >= 4);
-        const likelyPathogenic = annotated.filter((annotation) => Number(annotation.max_pathogenicity) === 3);
-        const uncertain = annotated.filter((annotation) => Number(annotation.max_pathogenicity) === 2);
-        const benign = annotated.filter((annotation) => Number(annotation.max_pathogenicity) <= 1);
-        const surpriseResidues = residues.filter((annotation) => surpriseClass(annotation));
-        const phenotypeCounts = {};
-        annotated.forEach((annotation) => {
-          (annotation.phenotypes || []).forEach((phenotype) => {
-            phenotypeCounts[phenotype] = (phenotypeCounts[phenotype] || 0) + 1;
-          });
-        });
-        const topPhenotypes = Object.entries(phenotypeCounts)
-          .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-          .slice(0, 5);
-        const network = buildContactNetwork(selectedPhenotypes(), selectedContactCutoff());
+        const summary = querySummaryStats();
+        const rows = summary.activeRows;
+        const mode = document.getElementById("baseColorMode").value;
+        const network = buildContactNetwork(selectedContactCutoff());
         const mainNeighborhoods = summarizeContactNeighborhoods(network);
-        const contactSummary = selectedPhenotypes().size === 0 ? `
-          <p class="legend-note">Contact neighborhoods are computed only from the currently selected phenotypes. Select one or more phenotypes to show disease neighborhoods.</p>
-        ` : network.nodes.length > 0 ? `
-          <p class="legend-note">Contact neighborhoods at ${selectedContactCutoff().toFixed(1)} A: showing ${mainNeighborhoods.length} main clusters of ${network.components.length} total, largest cluster ${network.largestClusterSize} residues.</p>
-        ` : `
-          <p class="legend-note">Contact network at ${selectedContactCutoff().toFixed(1)} A: no matching disease residues with resolved coordinates for the selected phenotypes.</p>
-        `;
-
         panel.innerHTML = `
           <div class="stats-grid">
-            ${statItem(annotated.length, "ClinVar-annotated residues")}
-            ${statItem(pathogenic.length, "pathogenic residues")}
-            ${statItem(likelyPathogenic.length, "likely pathogenic residues")}
-            ${statItem(uncertain.length, "uncertain/conflicting residues")}
-            ${statItem(benign.length, "benign/likely benign residues")}
-            ${statItem(surpriseResidues.length, "surprise outliers")}
+            ${statItem(rows.length, "active query rows")}
+            ${statItem(summary.uniqueResidueCount, "unique matched residues")}
+            ${statItem(getResidueAnnotations().length, "total residues")}
+            ${statItem(queryRows.filter((row) => !row.isPlaceholder && row.query.trim() && row.error).length, "invalid queries")}
           </div>
-          ${contactSummary}
-          <p class="legend-note">Top phenotype residue burden:</p>
+          <p class="legend-note">${mode === "contact-network"
+            ? `Contact network at ${selectedContactCutoff().toFixed(1)} A: showing ${mainNeighborhoods.length} main clusters of ${network.components.length} total, largest cluster ${network.largestClusterSize} residues.`
+            : "Colored query markers are overlaid on top of the protein and do not change the protein color mode."}</p>
           <ol class="mini-list">
-            ${topPhenotypes.map(([phenotype, count]) => `<li>${escapeHtml(phenotype)}: ${count} residues</li>`).join("") || "<li>No phenotype labels found.</li>"}
+            ${rows.map((row) => `<li><span class="swatch" style="background:${escapeAttr(row.color)}"></span> ${escapeHtml(row.query)}: ${row.matchCount} residues</li>`).join("") || "<li>No active query rows yet.</li>"}
           </ol>
         `;
       }
@@ -1461,7 +2199,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         }
 
         const focusResidue = selectedFocusResidue();
-        const restOpacity = focusResidue ? selectedBackgroundOpacity() : 1.0;
+        const restOpacity = selectedBackgroundOpacity();
         clearSurfaces();
         clearShapes();
         viewer.setStyle({}, {});
@@ -1472,6 +2210,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         redrawShapeOverlays();
         applyFocus(focusResidue, zoomFocus);
         populateDiseaseStats();
+        populateVariantList();
         updateLegend();
         viewer.render();
       }
@@ -1480,13 +2219,8 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         if (!viewer) {
           return;
         }
-        const focusResidue = selectedFocusResidue();
-        clearShapes();
-        redrawShapeOverlays();
-        applyFocus(focusResidue, false);
-        populateDiseaseStats();
-        updateLegend();
-        viewer.render();
+        syncSelectAllPhenotypesState();
+        applyStyle(false);
       }
 
       function handleFocusChange(zoomFocus) {
@@ -1514,16 +2248,11 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
 
       function redrawShapeOverlays() {
-        const focusResidue = selectedFocusResidue();
-        const opacity = focusResidue ? selectedBackgroundOpacity() : 1.0;
-        const phenotypes = selectedPhenotypes();
-        const mode = document.getElementById("baseColorMode").value;
+        const opacity = selectedBackgroundOpacity();
         if (isSurfaceStyle()) {
           addSurfaceModeMarkers(opacity);
         }
-        if (mode !== "contact-network" && phenotypes.size > 0) {
-          addPhenotypeMarkers(phenotypes);
-        }
+        addQueryMarkers();
       }
 
       function sceneKey(opacity) {
@@ -1537,6 +2266,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
     function applyBaseColorMode(opacity) {
       const mode = document.getElementById("baseColorMode").value;
+      const residues = getResidueAnnotations();
 
       if (mode === "gray") {
         styleWholeProtein("#d9d9d9", opacity);
@@ -1547,7 +2277,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       if (mode === "default") {
         if (isSurfaceStyle()) {
           styleWholeProtein("#d9d9d9", opacity);
-          setStatus("Surface styles use a gray protein base. Choose a data mode to overlay colored residues.");
+          setStatus("Surface styles use a neutral protein surface. Query markers are drawn on top.");
           return;
         }
         styleWholeProtein("spectrum", opacity);
@@ -1558,52 +2288,56 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       styleWholeProtein("#d9d9d9", opacity);
 
       if (mode === "missense-gradient") {
-        getResidueAnnotations().forEach((annotation) => {
-          if (annotation.missense) {
-            styleResidue(annotation.residue, annotation.missense.color || scoreToColor(annotation.missense.score), opacity, 0.1);
-          }
+        residues.forEach((annotation) => {
+          const color = annotation.missense
+            ? (annotation.missense.color || scoreToColor(annotation.missense.score))
+            : "#4b5563";
+          styleResidue(annotation.residue, color, opacity, 0.1);
         });
         setStatus("Coloring by AlphaMissense mean pathogenicity score from 0 to 1.");
       } else if (mode === "missense-class") {
-        getResidueAnnotations().forEach((annotation) => {
-          if (annotation.missense) {
-            styleResidue(annotation.residue, missenseClassColor(annotation.missense.class), opacity, 0.1);
-          }
+        residues.forEach((annotation) => {
+          const color = annotation.missense
+            ? missenseClassColor(annotation.missense.class)
+            : "#4b5563";
+          styleResidue(annotation.residue, color, opacity, 0.1);
         });
         setStatus("Coloring by AlphaMissense class.");
       } else if (mode === "alphafold-confidence") {
-        getResidueAnnotations().forEach((annotation) => {
-          if (annotation.alphafold_confidence) {
-            styleResidue(annotation.residue, annotation.alphafold_confidence.color, opacity, 0.08);
-          }
+        residues.forEach((annotation) => {
+          const color = annotation.alphafold_confidence
+            ? annotation.alphafold_confidence.color
+            : "#4b5563";
+          styleResidue(annotation.residue, color, opacity, 0.08);
         });
         setStatus("Coloring by AlphaFold model confidence from the PDB B-factor column.");
       } else if (mode === "clinvar-pathogenicity") {
-        getResidueAnnotations().forEach((annotation) => {
-          const pathClass = bestActivePathogenicityClass(annotation);
-          if (pathClass) {
-            styleResidue(annotation.residue, selectedGlobalPathogenicityColor(pathClass), opacity, 0.14);
-          }
+        residues.forEach((annotation) => {
+          const pathClass = bestIntrinsicPathogenicityClass(annotation);
+          const color = pathClass ? pathogenicityClassColor(pathClass) : "#4b5563";
+          styleResidue(annotation.residue, color, opacity, 0.14);
         });
         setStatus("Coloring ClinVar residues by strongest pathogenicity label.");
       } else if (mode === "surprise") {
-        getResidueAnnotations().forEach((annotation) => {
+        residues.forEach((annotation) => {
           const surprise = surpriseClass(annotation);
-          if (surprise) {
-            styleResidue(annotation.residue, surprise.color, opacity, 0.16);
-          }
+          const color = surprise ? surprise.color : "#4b5563";
+          styleResidue(annotation.residue, color, opacity, 0.16);
         });
         setStatus("Coloring residues where ClinVar labels and AlphaMissense scores disagree.");
       } else if (mode === "contact-network") {
         styleWholeProtein("#d9d9d9", opacity);
         addContactNetwork();
-        setStatus(`Showing main disease neighborhoods with an ${selectedContactCutoff().toFixed(1)} A cutoff. Sphere size tracks cluster size.`);
+        setStatus(`Showing disease neighborhoods with an ${selectedContactCutoff().toFixed(1)} A cutoff. Query markers remain overlaid.`);
       }
     }
 
       function addPhenotypeMarkers(phenotypes) {
         const activeGlobalClasses = selectedGlobalPathogenicityClasses();
         getResidueAnnotations().forEach((annotation) => {
+          if (!annotationMatchesFunctionFilter(annotation)) {
+            return;
+          }
           const markerItems = [];
           (annotation.phenotypes || []).forEach((phenotype) => {
             if (!phenotypes.has(phenotype)) {
@@ -1613,7 +2347,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
             PATHOGENICITY_CLASSES.forEach((pathClass) => {
               const globalConfig = activeGlobalClasses.get(pathClass.key);
               const phenotypeClassConfig = phenotypeConfig.classes.get(pathClass.key);
-              if (!globalConfig?.enabled || !phenotypeClassConfig?.enabled) {
+              if (!globalConfig || !globalConfig.enabled || !phenotypeClassConfig || !phenotypeClassConfig.enabled) {
                 return;
               }
               if (!phenotypeHasPathogenicityClass(annotation, phenotype, pathClass.key)) {
@@ -1790,7 +2524,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
 
       function addContactNetwork() {
-        const network = buildContactNetwork(selectedPhenotypes(), selectedContactCutoff());
+        const network = buildContactNetwork(selectedContactCutoff());
         const neighborhoods = summarizeContactNeighborhoods(network);
         if (neighborhoods.length === 0) {
           return;
@@ -1838,9 +2572,9 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           } else if (mode === "alphafold-confidence" && annotation.alphafold_confidence) {
             styleResidue(annotation.residue, annotation.alphafold_confidence.color, opacity, 0.08);
           } else if (mode === "clinvar-pathogenicity") {
-            const pathClass = bestActivePathogenicityClass(annotation);
+            const pathClass = bestIntrinsicPathogenicityClass(annotation);
             if (pathClass) {
-              styleResidue(annotation.residue, selectedGlobalPathogenicityColor(pathClass), opacity, 0.14);
+              styleResidue(annotation.residue, pathogenicityClassColor(pathClass), opacity, 0.14);
             }
           } else if (mode === "surprise") {
             const surprise = surpriseClass(annotation);
@@ -1853,34 +2587,20 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
       function updateLegend() {
         const legend = document.getElementById("colorLegend");
-        const phenotypes = selectedPhenotypes();
         const mode = document.getElementById("baseColorMode").value;
         const sections = [];
 
         sections.push(baseLegend(mode));
-
-        if (phenotypes.size > 0) {
-          const selectedItems = Array.from(phenotypes.entries())
-            .map(([phenotype, config]) => {
-              const activeClasses = PATHOGENICITY_CLASSES
-                .filter((pathClass) => selectedGlobalPathogenicityClasses().get(pathClass.key)?.enabled && config.classes.get(pathClass.key)?.enabled)
-                .map((pathClass) => pathClass.label)
-                .join(", ");
-              const label = config.usePathogenicityColors
-                ? `${phenotype}${activeClasses ? `: ${activeClasses}` : ""} (pathogenicity colors)`
-                : `${phenotype} (phenotype color)`;
-              return legendItem(config.color, label);
-            })
-            .join("");
-            sections.push(`
-              <p class="legend-note">Phenotype overlay is active. Hidden per-phenotype controls choose which pathogenicity classes appear, and the toggle decides whether that phenotype uses its own base color or pathogenicity-specific colors.</p>
-              <div class="legend">${selectedItems}</div>
-            `);
-          if (Array.from(phenotypes.values()).some((config) => config.usePathogenicityColors)) {
-            sections.push(pathogenicityColorLegend("Active pathogenicity marker colors"));
-          }
-        } else if (mode === "clinvar-pathogenicity") {
-          sections.push(`<p class="legend-note">ClinVar pathogenicity layer uses the active global class colors.</p>`);
+        const activeRows = activeQueryRows();
+        if (activeRows.length > 0) {
+          sections.push(`
+            <p class="legend-note">Active query overlays:</p>
+            <div class="legend">
+              ${activeRows.map((row) => legendItem(row.color, `${row.query} (${row.matchCount})`)).join("")}
+            </div>
+          `);
+        } else {
+          sections.push(`<p class="legend-note">No active query overlays. Type a query in the right-hand panel to add colored residue markers.</p>`);
         }
         legend.innerHTML = sections.join("");
       }
@@ -1928,7 +2648,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         }
         if (mode === "contact-network") {
           return `
-            <p class="legend-note">Disease contact network. It is computed only from the currently selected phenotypes, residue markers are hidden in this mode, and only the biggest neighborhoods are shown. Inner sphere size scales with cluster size.</p>
+            <p class="legend-note">Disease contact network across all ClinVar-annotated residues. Inner sphere size scales with cluster size, and query markers remain visible on top.</p>
             ${pathogenicityClassLegend()}
           `;
         }
@@ -1943,7 +2663,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           `;
         }
         return `
-            <p class="legend-note">Default 3Dmol spectrum coloring. Phenotype residue markers can be overlaid on top.</p>
+            <p class="legend-note">Default 3Dmol spectrum coloring. Query residue markers can be overlaid on top.</p>
             <div class="colorbar">
               <div class="colorbar-track" style="background: linear-gradient(90deg, #304ffe, #00bcd4, #4caf50, #ffeb3b, #f44336);"></div>
               <div class="colorbar-labels"><span>N terminus</span><span>C terminus</span></div>
@@ -1964,10 +2684,21 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
       function pathogenicityClassLegend() {
         const items = PATHOGENICITY_CLASSES
-          .filter((pathClass) => selectedGlobalPathogenicityClasses().get(pathClass.key)?.enabled)
-          .map((pathClass) => legendItem(selectedGlobalPathogenicityColor(pathClass.key), pathClass.label))
+          .map((pathClass) => legendItem(pathogenicityClassColor(pathClass.key), pathClass.label))
           .join("");
         return `<div class="legend">${items || '<span class="legend-note">No pathogenicity classes selected.</span>'}</div>`;
+      }
+
+      function bestIntrinsicPathogenicityClass(annotation) {
+        const labels = Object.keys(annotation.significance_counts || {});
+        return labels
+          .map((label) => significanceClassKey(label))
+          .sort((left, right) => pathogenicityClassRank(right) - pathogenicityClassRank(left))[0] || null;
+      }
+
+      function pathogenicityClassColor(pathClassKey) {
+        const pathClass = PATHOGENICITY_CLASSES.find((item) => item.key === pathClassKey);
+        return pathClass ? pathClass.color : "#9ca3af";
       }
 
       function selectedGlobalPathogenicityClasses() {
@@ -1976,15 +2707,17 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
           const checkbox = document.querySelector(`.global-pathogenicity-check[data-class="${pathClass.key}"]`);
           const colorInput = document.querySelector(`.global-pathogenicity-color[data-class="${pathClass.key}"]`);
           classes.set(pathClass.key, {
-            enabled: Boolean(checkbox?.checked),
-            color: colorInput?.value || pathClass.color,
+            enabled: Boolean(checkbox && checkbox.checked),
+            color: colorInput ? colorInput.value || pathClass.color : pathClass.color,
           });
         });
         return classes;
       }
 
       function selectedGlobalPathogenicityColor(pathClassKey) {
-        return selectedGlobalPathogenicityClasses().get(pathClassKey)?.color || pathogenicityClassDefaults().get(pathClassKey)?.color || "#9ca3af";
+        const selectedClass = selectedGlobalPathogenicityClasses().get(pathClassKey);
+        const defaultClass = pathogenicityClassDefaults().get(pathClassKey);
+        return (selectedClass && selectedClass.color) || (defaultClass && defaultClass.color) || "#9ca3af";
       }
 
       function pathogenicityClassDefaults() {
@@ -1992,7 +2725,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
 
       function handleGlobalPathogenicityChange(event) {
-        if (event?.target?.classList?.contains("global-pathogenicity-color")) {
+        if (event && event.target && event.target.classList && event.target.classList.contains("global-pathogenicity-color")) {
           const pathClassKey = event.target.dataset.class;
           document.querySelectorAll(`.phenotype-pathogenicity-color[data-class="${pathClassKey}"]`).forEach((input) => {
             if (!input.dataset.customized) {
@@ -2004,7 +2737,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
 
       function phenotypeVariantSignificances(annotation, phenotype) {
-        const variants = annotation.variants || [];
+        const variants = filteredVariants(annotation);
         const labels = variants
           .filter((variant) => (variant.phenotype_names || []).includes(phenotype))
           .map((variant) => variant.significance)
@@ -2021,22 +2754,38 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
       function bestActivePathogenicityClass(annotation) {
         const activeClasses = selectedGlobalPathogenicityClasses();
-        const labels = Object.keys(annotation.significance_counts || {});
+        const labels = filteredVariants(annotation)
+          .map((variant) => variant.significance)
+          .filter(Boolean);
         return labels
           .map((label) => significanceClassKey(label))
-          .filter((pathClassKey) => activeClasses.get(pathClassKey)?.enabled)
+          .filter((pathClassKey) => {
+            const activeClass = activeClasses.get(pathClassKey);
+            return activeClass && activeClass.enabled;
+          })
           .sort((left, right) => pathogenicityClassRank(right) - pathogenicityClassRank(left))[0] || null;
       }
 
       function pathogenicityClassResidueCount(pathClassKey) {
         return getResidueAnnotations()
-          .filter((annotation) => Object.keys(annotation.significance_counts || {}).some((label) => significanceClassKey(label) === pathClassKey))
+          .filter((annotation) => filteredVariants(annotation).some((variant) => significanceClassKey(variant.significance) === pathClassKey))
           .length;
       }
 
       function phenotypePathogenicityResidueCount(phenotype, pathClassKey) {
         return getResidueAnnotations()
           .filter((annotation) => (annotation.phenotypes || []).includes(phenotype) && phenotypeHasPathogenicityClass(annotation, phenotype, pathClassKey))
+          .length;
+      }
+
+      function functionClassResidueCount(functionClassKey) {
+        if (functionClassKey === "neither") {
+          return getResidueAnnotations()
+            .filter((annotation) => !annotationHasKnownFunction(annotation))
+            .length;
+        }
+        return getResidueAnnotations()
+          .filter((annotation) => (annotation.function_classes || []).includes(functionClassKey))
           .length;
       }
 
@@ -2070,47 +2819,21 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
         return 0;
       }
 
-      function activeDiseaseClassKeysForAnnotation(annotation, phenotypes) {
-        if (!phenotypes || phenotypes.size === 0) {
-          return [];
-        }
-        const activeClasses = selectedGlobalPathogenicityClasses();
-        const classKeys = new Set();
-        (annotation.phenotypes || []).forEach((phenotype) => {
-          if (!phenotypes.has(phenotype)) {
-            return;
-          }
-          const phenotypeConfig = phenotypes.get(phenotype);
-          PATHOGENICITY_CLASSES.forEach((pathClass) => {
-            const globalConfig = activeClasses.get(pathClass.key);
-            const phenotypeClassConfig = phenotypeConfig.classes.get(pathClass.key);
-            if (!globalConfig?.enabled || !phenotypeClassConfig?.enabled) {
-              return;
-            }
-            if (phenotypeHasPathogenicityClass(annotation, phenotype, pathClass.key)) {
-              classKeys.add(pathClass.key);
-            }
-          });
-        });
-        return Array.from(classKeys);
-      }
-
-      function buildContactNetwork(phenotypes, cutoff) {
+      function buildContactNetwork(cutoff) {
         const nodes = getResidueAnnotations()
           .map((annotation) => {
-            const classKeys = activeDiseaseClassKeysForAnnotation(annotation, phenotypes);
+            const dominantClass = bestIntrinsicPathogenicityClass(annotation);
             const center = residueCenter(annotation.residue);
-            if (classKeys.length === 0 || !center) {
+            if (!dominantClass || !center) {
               return null;
             }
-            const dominantClass = classKeys.sort((left, right) => pathogenicityClassRank(right) - pathogenicityClassRank(left))[0];
             return {
               residue: annotation.residue,
               annotation,
               center,
-              classKeys,
+              classKeys: [dominantClass],
               dominantClass,
-              color: selectedGlobalPathogenicityColor(dominantClass),
+              color: pathogenicityClassColor(dominantClass),
               clusterSize: 1,
               degree: 0,
             };
@@ -2170,11 +2893,13 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
         nodes.forEach((node) => {
           const component = componentByResidue.get(node.residue);
-          node.clusterSize = component?.size || 1;
-          node.degree = adjacency.get(node.residue)?.size || 0;
+          const neighbors = adjacency.get(node.residue);
+          node.clusterSize = component ? component.size : 1;
+          node.degree = neighbors ? neighbors.size : 0;
         });
         edges.forEach((edge) => {
-          edge.clusterSize = componentByResidue.get(edge.residues[0])?.size || 1;
+          const component = componentByResidue.get(edge.residues[0]);
+          edge.clusterSize = component ? component.size : 1;
         });
 
         return {
@@ -2200,12 +2925,13 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
             clusterNodes.forEach((node) => {
               classCounts.set(node.dominantClass, (classCounts.get(node.dominantClass) || 0) + 1);
             });
-            const dominantClass = Array.from(classCounts.entries())
-              .sort((left, right) => right[1] - left[1] || pathogenicityClassRank(right[0]) - pathogenicityClassRank(left[0]))[0]?.[0] || "uncertain";
+            const sortedClassCounts = Array.from(classCounts.entries())
+              .sort((left, right) => right[1] - left[1] || pathogenicityClassRank(right[0]) - pathogenicityClassRank(left[0]));
+            const dominantClass = sortedClassCounts.length > 0 ? sortedClassCounts[0][0] : "uncertain";
             return {
               size: clusterNodes.length,
               center,
-              color: selectedGlobalPathogenicityColor(dominantClass),
+              color: pathogenicityClassColor(dominantClass),
               dominantClass,
               residues: componentResidues,
             };
@@ -2296,8 +3022,9 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
 
     function selectedMarkerScale() {
-      const value = Number(document.getElementById("markerScale").value);
-      return Math.max(0.5, Math.min(5.0, Number.isFinite(value) ? value : 1.6));
+      const input = document.getElementById("markerScale");
+      const value = Number(input ? input.value : null);
+      return Math.max(0.5, Math.min(50.0, Number.isFinite(value) ? value : 5.0));
     }
 
     function selectedContactCutoff() {
@@ -2310,9 +3037,14 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
 
       function updateMarkerScaleLabel() {
+        const valueLabel = document.getElementById("markerScaleValue");
+        const valueInput = document.getElementById("markerScaleText");
+        if (!valueLabel || !valueInput) {
+          return;
+        }
         const label = `${selectedMarkerScale().toFixed(1)}x`;
-        document.getElementById("markerScaleValue").textContent = label;
-        document.getElementById("markerScaleText").value = label;
+        valueLabel.textContent = label;
+        valueInput.value = label;
       }
 
       function updateContactCutoffLabel() {
@@ -2323,9 +3055,13 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 
       function syncMarkerScaleFromText() {
         const input = document.getElementById("markerScaleText");
+        const slider = document.getElementById("markerScale");
+        if (!input || !slider) {
+          return;
+        }
         const parsed = Number.parseFloat(String(input.value).replace(/x/gi, "").trim());
-        const normalized = Math.max(0.5, Math.min(5.0, Number.isFinite(parsed) ? parsed : selectedMarkerScale()));
-        document.getElementById("markerScale").value = normalized.toFixed(1);
+        const normalized = Math.max(0.5, Math.min(50.0, Number.isFinite(parsed) ? parsed : selectedMarkerScale()));
+        slider.value = normalized.toFixed(1);
         updateMarkerScaleLabel();
       }
 
@@ -2343,36 +3079,9 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
       }
         document.getElementById("focusResidue").value = "";
         document.getElementById("backgroundOpacity").value = "0.3";
-      document.getElementById("markerScale").value = "1.6";
         updateBackgroundOpacityLabel();
-      updateMarkerScaleLabel();
-      document.querySelectorAll(".phenotype-check").forEach((checkbox) => {
-        checkbox.checked = false;
-      });
-      PATHOGENICITY_CLASSES.forEach((pathClass) => {
-        const globalCheck = document.querySelector(`.global-pathogenicity-check[data-class="${pathClass.key}"]`);
-        const globalColor = document.querySelector(`.global-pathogenicity-color[data-class="${pathClass.key}"]`);
-        if (globalCheck) {
-          globalCheck.checked = true;
-        }
-        if (globalColor) {
-          globalColor.value = pathClass.color;
-        }
-      });
-      document.querySelectorAll(".phenotype-pathogenicity-check").forEach((checkbox) => {
-        checkbox.checked = true;
-      });
-      document.querySelectorAll(".phenotype-use-pathogenicity-colors").forEach((checkbox) => {
-        checkbox.checked = false;
-      });
-      document.querySelectorAll(".phenotype-pathogenicity-color").forEach((input) => {
-        const pathClass = pathogenicityClassDefaults().get(input.dataset.class);
-        input.value = pathClass?.color || "#9ca3af";
-        delete input.dataset.customized;
-      });
-      document.querySelectorAll(".phenotype-options").forEach((options) => {
-        options.classList.remove("is-visible");
-      });
+      initQueryRows();
+      renderQueryControls();
       document.getElementById("contactCutoff").value = "8.0";
       updateContactCutoffLabel();
       applyStyle(false);
@@ -2465,7 +3174,7 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
 
       function markerRadius(annotation, baseRadius = 0.36) {
-        const variantCount = Math.max(1, Number(annotation?.variant_count) || 1);
+        const variantCount = Math.max(1, Number(annotation ? annotation.variant_count : 1) || 1);
         const scale = selectedMarkerScale();
         const variantBoost = 1 + Math.log2(variantCount) * 0.25;
         return Math.max(0.16, baseRadius * variantBoost * scale);
@@ -2520,27 +3229,94 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
     }
 
     function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;");
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/'/g, "&#39;");
     }
 
     function setStatus(message) {
       document.getElementById("status").textContent = message;
     }
 
-    window.addEventListener("load", init);
+    function logError(error) {
+      if (window.console && typeof window.console.error === "function") {
+        window.console.error(error);
+      }
+    }
+
+    window.addEventListener("load", () => {
+      try {
+        init();
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        setStatus(`Viewer startup error: ${message}`);
+        logError(error);
+      }
+    });
   </script>
-</body>
+  <script>
+    (function(){
+      "use strict";
+      var ann=JSON.parse(document.getElementById("structpheno-annotations-data").textContent||"{}");
+      var pdb=JSON.parse(document.getElementById("structpheno-pdb-data").textContent||'""');
+      var viewer=null, model=null, rows=[], rowId=0, centers={}, palette=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b"];
+      function id(x){return document.getElementById(x);} function rs(){return ann.residue_list||[];} function stat(m){id("status").textContent=m;} function esc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");} function attr(v){return esc(v).replace(/'/g,"&#39;");}
+      function init(){focusList(); rows=[row(false),row(true)]; docs(); renderRows(); bindMain(); if(!window.$3Dmol){stat("3Dmol.js did not load."); return;} viewer=$3Dmol.createViewer("viewer",{backgroundColor:"white"}); model=viewer.addModel(pdb,"pdb"); draw(); viewer.zoomTo(); viewer.render(); stat("Protein loaded. Query highlights add colored residue markers.");}
+      function bindMain(){var a=["baseColorMode","renderStyle","focusResidue","backgroundOpacity"],i,e; for(i=0;i<a.length;i++){e=id(a[i]); if(e){e.addEventListener("change",draw); e.addEventListener("input",draw);}} if(id("resetView")){id("resetView").addEventListener("click",function(){id("focusResidue").value=""; if(viewer){viewer.zoomTo();} draw();});}}
+      function focusList(){var h='<option value="">No residue focus</option>',r=rs(),i; for(i=0;i<r.length;i++){h+='<option value="'+r[i].residue+'">Residue '+r[i].residue+'</option>';} id("focusResidue").innerHTML=h;}
+      function op(){var v=Number(id("backgroundOpacity").value); if(!isFinite(v)){v=.8;} v=Math.max(.05,Math.min(1,v)); if(id("backgroundOpacityValue")){id("backgroundOpacityValue").textContent=v.toFixed(2);} return v;}
+      function row(ph){var n=0,i; for(i=0;i<rows.length;i++){if(!rows[i].ph){n++;}} return {id:"q"+(++rowId),ph:ph,en:!ph,color:palette[n%palette.length],size:5.0,sd:"5.0",q:"",draft:"",err:"",m:[]};}
+      function placeholder(){var a=[],p=null,i; for(i=0;i<rows.length;i++){if(rows[i].ph){p=rows[i];}else{a.push(rows[i]);}} if(!p){p=row(true);} rows=a.concat([p]);}
+      function find(rid){var i; for(i=0;i<rows.length;i++){if(rows[i].id===rid){return rows[i];}} return null;}
+      function renderRows(focusRid,caret){placeholder(); evalRows(); var h="",i,r,inp,pos; for(i=0;i<rows.length;i++){r=rows[i]; h+='<div class="query-row'+(r.ph?' is-placeholder':'')+(r.err?' is-invalid':'')+'"><div class="query-row-top">'; h+='<input class="query-enabled" data-r="'+r.id+'" type="checkbox"'+(r.en?' checked':'')+(r.ph?' disabled':'')+'>'; h+='<input class="query-color" data-r="'+r.id+'" type="color" value="'+attr(r.color)+'"'+(r.ph?' disabled':'')+'>'; h+='<input class="query-size" data-r="'+r.id+'" type="number" min="0.6" max="50.0" step="0.1" value="'+attr(r.sd)+'"'+(r.ph?' disabled':'')+'>'; h+='<div class="query-input-wrap"><input class="query-input" data-r="'+r.id+'" type="text" value="'+attr(r.draft)+'" placeholder="'+(r.ph?'Type a query to activate this row':"e.g. phenotype CONTAINS 'epileptic'")+'"></div>'; h+='<span class="pathogenicity-count">'+(r.ph?'placeholder':r.m.length+' hits')+'</span></div><div class="query-row-meta"><span>'+(r.ph?'Placeholder row':(r.en?'Enabled':'Disabled'))+'</span>'+(r.err?'<span class="query-error">'+esc(r.err)+'</span>':'')+'</div></div>'; } id("queryControls").innerHTML=h; bindRows(); summary(); list(); if(focusRid){inp=document.querySelector('.query-input[data-r="'+focusRid+'"]'); if(inp){inp.focus(); if(typeof caret==="number"&&inp.setSelectionRange){pos=Math.max(0,Math.min(caret,inp.value.length)); inp.setSelectionRange(pos,pos);}}}}
+      function qsa(s,e,fn){var x=document.querySelectorAll(s),i; for(i=0;i<x.length;i++){x[i].addEventListener(e,function(ev){fn(ev.target,ev);});}}
+      function bindRows(){qsa(".query-enabled","change",function(e){var r=find(e.getAttribute("data-r")); if(r){r.en=e.checked; draw();}}); qsa(".query-color","input",function(e){var r=find(e.getAttribute("data-r")); if(r){r.color=e.value; draw();}}); qsa(".query-size","input",function(e){var r=find(e.getAttribute("data-r")); if(r){r.sd=e.value;}}); qsa(".query-size","keydown",function(e,ev){var r=find(e.getAttribute("data-r")),v; if(!r){return;} if(ev&&ev.key==="Enter"){if(ev.preventDefault){ev.preventDefault();} v=Math.max(.6,Math.min(50.0,Number(e.value)||5.0)); r.size=v; r.sd=v.toFixed(1); e.value=r.sd; draw();}}); qsa(".query-input","input",function(e){var r=find(e.getAttribute("data-r")); if(r){r.draft=e.value;}}); qsa(".query-input","keydown",function(e,ev){var r=find(e.getAttribute("data-r")); if(!r){return;} if(ev&&ev.key==="Enter"){if(ev.preventDefault){ev.preventDefault();} r.draft=e.value; r.q=e.value; if(r.ph&&r.q.replace(/\s/g,"")){r.ph=false; r.en=true; rows.push(row(true));} renderRows(r.id,typeof e.selectionStart==="number"?e.selectionStart:e.value.length); draw();}});}
+      function style(c,o,rad){var s=id("renderStyle").value; rad=rad||.12; if(s==="stick"){return {stick:{color:c,radius:rad,opacity:o}};} if(s==="line"){return {line:{color:c,opacity:o}};} if(s==="sphere"){return {sphere:{color:c,radius:Math.max(rad*2.8,.35),opacity:o}};} if(s==="cartoon-stick"){return {cartoon:{color:c,opacity:o},stick:{color:c,radius:rad,opacity:o}};} return {cartoon:{color:c,opacity:o}};}
+      function isSurface(){return String(id("renderStyle").value).indexOf("surface-")===0;}
+      function surfaceType(){var s=id("renderStyle").value,t="VDW"; if(s==="surface-ms"){t="MS";} if(s==="surface-sas"||s==="surface-smooth"){t="SAS";} if(s==="surface-ses"){t="SES";} if(window.$3Dmol&&$3Dmol.SurfaceType&&$3Dmol.SurfaceType[t]){return $3Dmol.SurfaceType[t];} return window.$3Dmol&&$3Dmol.SurfaceType?$3Dmol.SurfaceType.VDW:null;}
+      function addSurface(c,o){var st=surfaceType(),smooth=id("renderStyle").value==="surface-smooth",alpha;if(!st){return;} alpha=smooth?Math.max(.25,Math.min(.85,o)):Math.max(.08,Math.min(.9,o)); viewer.addSurface(st,{color:c,opacity:alpha,transparent:alpha<1},{}); if(!smooth){viewer.setStyle({},{line:{color:"#aeb8c2",opacity:Math.min(.14,o)}});}}
+      function paintResidue(res,c,o){if(isSurface()){sphere(res,c,.34,0,1);}else{viewer.setStyle({resi:res},style(c,o,.12));}}
+      function draw(){evalRows(); summary(); list(); if(!viewer){return;} var mode=id("baseColorMode").value,o=op(),r=rs(),i,c; if(viewer.removeAllShapes){viewer.removeAllShapes();} if(viewer.removeAllSurfaces){viewer.removeAllSurfaces();} viewer.setStyle({},{}); if(isSurface()){addSurface("#d9d9d9",o);}else{viewer.setStyle({},style(mode==="default"?"spectrum":"#d9d9d9",o,.12));} for(i=0;i<r.length;i++){c=null; if(mode==="missense-gradient"&&r[i].missense){c=r[i].missense.color||score(r[i].missense.score);} if(mode==="missense-class"&&r[i].missense){c=miss(r[i].missense["class"]);} if(mode==="alphafold-confidence"&&r[i].alphafold_confidence){c=r[i].alphafold_confidence.color;} if(mode==="clinvar-pathogenicity"){c=pathColor(path(r[i]));} if(mode==="surprise"){c=surprise(r[i]);} if(c){paintResidue(r[i].residue,c,o);}} markers(); focus(); viewer.render();}
+      function center(res){var k=String(res),a,i,c; if(centers.hasOwnProperty(k)){return centers[k];} if(!model||!model.selectedAtoms){return null;} a=model.selectedAtoms({resi:res})||[]; if(!a.length){centers[k]=null; return null;} for(i=0;i<a.length;i++){if(String(a[i].atom||"").toUpperCase()==="CA"){c={x:+a[i].x||0,y:+a[i].y||0,z:+a[i].z||0}; centers[k]=c; return c;}} c={x:0,y:0,z:0}; for(i=0;i<a.length;i++){c.x+=+a[i].x||0; c.y+=+a[i].y||0; c.z+=+a[i].z||0;} c.x/=a.length; c.y/=a.length; c.z/=a.length; centers[k]=c; return c;}
+      function sphere(res,c,rad,idx,total){var p=center(res),ang,ring; if(!p){return;} if(total>1){ang=2*Math.PI*idx/total; ring=Math.max(rad*.9,.22); p={x:p.x+ring*Math.cos(ang),y:p.y+ring*Math.sin(ang),z:p.z};} viewer.addSphere({center:p,color:c,radius:rad,opacity:1});}
+      function markers(){var g={},i,j,r,res; for(i=0;i<rows.length;i++){r=rows[i]; if(!r.en||r.ph||r.err){continue;} for(j=0;j<r.m.length;j++){res=r.m[j]; g[res]=g[res]||[]; g[res].push(r);}} for(res in g){if(g.hasOwnProperty(res)){for(i=0;i<g[res].length;i++){sphere(+res,g[res][i].color,Math.max(.18,g[res][i].size*.16),i,g[res].length);}}}}
+      function focus(){var res=Number(id("focusResidue").value); if(res){sphere(res,"#2459d6",.62,0,1); viewer.zoomTo({resi:res});}}
+      function evalRows(){var r=rs(),i,j; for(i=0;i<rows.length;i++){rows[i].m=[]; rows[i].err=""; if(rows[i].ph||!rows[i].q.replace(/\s/g,"")){continue;} try{for(j=0;j<r.length;j++){if(match(rows[i].q,r[j])){rows[i].m.push(r[j].residue);}}}catch(e){rows[i].err=e.message||String(e);}}}
+      function match(q,a){q=q.replace(/^\s+|\s+$/g,""); if(!q||/^all$/i.test(q)){return true;} return expr(q,a);}
+      function split(q,w){var out=[],start=0,i=0,j,ch,quote="",depth=0,word,upper=String(w).toUpperCase(),between=false; while(i<q.length){ch=q.charAt(i); if(quote){if(ch===quote){quote="";} i++; continue;} if(ch==="'"||ch==='"'){quote=ch; i++; continue;} if(ch==="("){depth++; i++; continue;} if(ch===")"){depth=Math.max(0,depth-1); i++; continue;} if(depth===0&&/[A-Za-z_]/.test(ch)){j=i+1; while(j<q.length&&/[A-Za-z0-9_-]/.test(q.charAt(j))){j++;} word=q.slice(i,j).toUpperCase(); if(word==="BETWEEN"){between=true; i=j; continue;} if(word===upper){if(upper==="AND"&&between){between=false; i=j; continue;} out.push(q.slice(start,i).replace(/^\s+|\s+$/g,"")); start=j;} i=j; continue;} i++;} out.push(q.slice(start).replace(/^\s+|\s+$/g,"")); return out;}
+      function outerParens(q){var i,depth=0,quote="",ch; q=q.replace(/^\s+|\s+$/g,""); if(q.charAt(0)!=="("||q.charAt(q.length-1)!==")"){return q;} for(i=0;i<q.length;i++){ch=q.charAt(i); if(quote){if(ch===quote){quote="";} continue;} if(ch==="'"||ch==='"'){quote=ch; continue;} if(ch==="("){depth++;} else if(ch===")"){depth--; if(depth===0&&i<q.length-1){return q;}}} return depth===0?q.slice(1,-1).replace(/^\s+|\s+$/g,""):q;}
+      function expr(q,a){var p,i; q=outerParens(q); if(/^NOT\s+/i.test(q)){return !expr(q.replace(/^NOT\s+/i,""),a);} p=split(q,"OR"); if(p.length>1){for(i=0;i<p.length;i++){if(expr(p[i],a)){return true;}} return false;} p=split(q,"AND"); if(p.length>1){for(i=0;i<p.length;i++){if(!expr(p[i],a)){return false;}} return true;} return pred(q,a);}
+      function strip(v){v=String(v).replace(/^\s+|\s+$/g,""); if((v.charAt(0)==="'"&&v.charAt(v.length-1)==="'")||(v.charAt(0)==='"'&&v.charAt(v.length-1)==='"')){return v.slice(1,-1);} return v;}
+      function pred(q,a){var m,f,x,arr,i; m=/^([A-Za-z_][A-Za-z0-9_-]*)\s+CONTAINS\s+(.+)$/i.exec(q); if(m){return contains(val(a,m[1]),strip(m[2]));} m=/^([A-Za-z_][A-Za-z0-9_-]*)\s+BETWEEN\s+(.+)\s+AND\s+(.+)$/i.exec(q); if(m){x=+val(a,m[1]); return x>=+strip(m[2])&&x<=+strip(m[3]);} m=/^([A-Za-z_][A-Za-z0-9_-]*)\s+IN\s*\((.*)\)$/i.exec(q); if(m){f=val(a,m[1]); arr=m[2].split(/\s*,\s*/); for(i=0;i<arr.length;i++){if(eq(f,strip(arr[i]))){return true;}} return false;} m=/^([A-Za-z_][A-Za-z0-9_-]*)\s*(=|!=|<=|>=|<|>)\s*(.+)$/.exec(q); if(m){return cmp(val(a,m[1]),m[2],strip(m[3]));} throw new Error("Could not parse query");}
+      function val(a,f){f=String(f).toLowerCase(); if(f==="residue"){return +a.residue;} if(f==="variant_count"){return +(a.variant_count||0);} if(f==="phenotype"){return a.phenotypes||[];} if(f==="primary_phenotype"){return a.primary_phenotype||null;} if(f==="primary_significance"){return a.primary_significance||null;} if(f==="pathogenicity_class"){return path(a);} if(f==="has_pathogenic"){return !!a.has_pathogenic;} if(f==="function_class"){return a.function_classes||[];} if(f==="missense_score"){return a.missense?+a.missense.score:null;} if(f==="missense_class"){return a.missense?a.missense["class"]:null;} if(f==="alphafold_score"){return a.alphafold_confidence?+a.alphafold_confidence.score:null;} if(f==="alphafold_class"){return a.alphafold_confidence?a.alphafold_confidence["class"]:null;} throw new Error("Unknown field '"+f+"'");}
+      function contains(f,n){var i; n=String(n).toLowerCase(); if(Object.prototype.toString.call(f)==="[object Array]"){for(i=0;i<f.length;i++){if(String(f[i]).toLowerCase().indexOf(n)!==-1){return true;}} return false;} return String(f||"").toLowerCase().indexOf(n)!==-1;}
+      function eq(f,x){var i; if(Object.prototype.toString.call(f)==="[object Array]"){for(i=0;i<f.length;i++){if(eq(f[i],x)){return true;}} return false;} if(!isNaN(Number(f))&&!isNaN(Number(x))){return Number(f)===Number(x);} return String(f).toLowerCase()===String(x).toLowerCase();} function cmp(f,op,x){if(op==="="){return eq(f,x);} if(op==="!="){return !eq(f,x);} f=Number(f); x=Number(x); if(!isFinite(f)||!isFinite(x)){return false;} if(op==="<"){return f<x;} if(op==="<="){return f<=x;} if(op===">"){return f>x;} if(op===">="){return f>=x;} return false;}
+      function path(a){var s=+(a.max_pathogenicity||0); if(!(+(a.variant_count||0))){return null;} if(a.pathogenicity_class){return a.pathogenicity_class;} if(s>=4){return "pathogenic";} if(s===3){return "likely-pathogenic";} if(s===2){return "uncertain";} return "benign";} function pathColor(c){if(c==="pathogenic"){return "#b2182b";} if(c==="likely-pathogenic"){return "#ef8a62";} if(c==="uncertain"){return "#fddbc7";} if(c==="benign"){return "#d1e5f0";} return "#d9d9d9";} function miss(c){c=String(c||"").toLowerCase(); if(c==="benign"){return "#2ca25f";} if(c==="pathogenic"){return "#d73027";} if(c==="ambiguous"){return "#fee08b";} return "#9ca3af";} function score(s){var v=Math.max(0,Math.min(1,+s||0)); return "rgb("+Math.round(43+172*v)+", "+Math.round(131-106*v)+", "+Math.round(186-158*v)+")";} function surprise(a){var s=a.missense?+a.missense.score:NaN,p=+(a.max_pathogenicity||0); if(!isFinite(s)){return null;} if(p>=3&&s<=.35){return "#7b3294";} if(p<=1&&+(a.variant_count||0)>0&&s>=.75){return "#008837";} if(p===2&&s>=.75){return "#fdae61";} return null;}
+      function docs(){id("queryExamples").innerHTML='<p class="legend-note">Queries are residue-level WHERE-style expressions. Strings may be quoted, but simple hyphenated values can be typed directly.</p><p class="legend-note"><strong>Set logic:</strong> OR is union, AND is intersection, NOT is negation; parentheses can group boolean clauses.</p><p class="legend-note"><strong>Fields:</strong> all, residue, variant_count, primary_phenotype, phenotype, primary_significance, pathogenicity_class, has_pathogenic, function_class, missense_score, missense_class, alphafold_score, alphafold_class.</p><p class="legend-note"><strong>Operators:</strong> =, !=, &lt;, &lt;=, &gt;, &gt;=, IN (...), BETWEEN ... AND ..., CONTAINS.</p><code>all</code><code>residue IN (42, 43, 44)</code><code>residue BETWEEN 100 AND 120</code><code>function_class = gain-of-function</code><code>NOT function_class IN (gain-of-function, loss-of-function)</code><code>phenotype CONTAINS epileptic AND pathogenicity_class = pathogenic</code>';}
+      function summary(){var u={},a=0,b=0,i,j,r; for(i=0;i<rows.length;i++){r=rows[i]; if(r.err){b++;} if(!r.en||r.ph||r.err){continue;} a++; for(j=0;j<r.m.length;j++){u[r.m[j]]=true;}} id("diseaseStats").innerHTML='<div class="stats-grid"><div class="stat"><strong>'+a+'</strong><span>active query rows</span></div><div class="stat"><strong>'+Object.keys(u).length+'</strong><span>unique matched residues</span></div><div class="stat"><strong>'+rs().length+'</strong><span>total residues</span></div><div class="stat"><strong>'+b+'</strong><span>invalid queries</span></div></div>';}
+      function list(){var r=rs(),h="",i,n=Math.min(80,r.length); for(i=0;i<n;i++){h+="<li>Residue "+r[i].residue+": "+esc(r[i].primary_significance||"annotated")+", "+esc(r[i].primary_phenotype||"no phenotype")+"</li>";} id("variantList").innerHTML=h;}
+      window.addEventListener("load",function(){try{init();}catch(e){stat("Viewer startup error: "+(e.message||String(e))); if(window.console&&console.error){console.error(e);}}});
+    }());
+  </script></body>
 </html>
 """
+    report_summary = {
+        "gene": gene,
+        "structure_label": structure_label,
+        "annotation_residue_count": annotations.get("residue_count"),
+        "annotation_record_count": annotations.get("record_count"),
+    }
     replacements = {
         "__GENE__": escape(gene),
         "__STRUCTURE_LABEL__": escape(structure_label),
-        "__REPORT_JSON__": _safe_json(report),
-        "__PREPROCESSED_JSON__": _safe_json(annotations),
+        "__REPORT_JSON__": _safe_json(report_summary),
+        "__PREPROCESSED_JSON__": _safe_json(_annotations_for_viewer_script(annotations)),
         "__PDB_JSON__": _safe_json(pdb_text),
     }
     for placeholder, value in replacements.items():
@@ -2551,6 +3327,21 @@ def _render_html(report: dict[str, Any], annotations: dict[str, Any], pdb_text: 
 def _safe_json(value: Any) -> str:
     """Serialize data for embedding in a script block."""
     return json.dumps(value).replace("</", "<\\/")
+
+
+def _annotations_for_viewer_script(annotations: dict[str, Any]) -> dict[str, Any]:
+    """Return a compact residue-level annotation payload for the HTML viewer."""
+    compact = {
+        key: value
+        for key, value in annotations.items()
+        if key not in {"residues", "residue_list"}
+    }
+    compact["residue_list"] = [
+        {key: value for key, value in residue.items() if key != "variants"}
+        for residue in annotations.get("residue_list", [])
+        if isinstance(residue, dict)
+    ]
+    return compact
 
 
 def _default_annotation_path(gene: str, viewer_path: Path | None = None) -> Path:
@@ -2619,7 +3410,13 @@ def _build_residue_annotation(
     phenotype_colors: dict[str, str],
     missense_prediction: dict[str, Any] | None,
     confidence_prediction: dict[str, Any] | None,
+    experimental_function: dict[str, Any],
 ) -> dict[str, Any]:
+    residue_key = str(residue)
+    variant_summaries = [
+        _variant_summary(record, experimental_function)
+        for record in records
+    ]
     phenotypes = sorted(
         {
             str(phenotype)
@@ -2635,6 +3432,17 @@ def _build_residue_annotation(
         (_significance_severity(significance) for significance in significance_counts),
         default=0,
     )
+    pathogenicity_class = _pathogenicity_class(max_pathogenicity, len(records))
+    function_class_counts = Counter()
+    residue_function_entry = experimental_function["by_residue"].get(residue_key, {})
+    if residue_function_entry.get("function_class_counts"):
+        function_class_counts.update(residue_function_entry["function_class_counts"])
+    else:
+        for variant in variant_summaries:
+            for function_class in variant.get("function_classes", []):
+                function_class_counts[function_class] += 1
+    for function_class in residue_function_entry.get("function_classes", []):
+        function_class_counts.setdefault(function_class, 0)
 
     return {
         "residue": residue,
@@ -2646,14 +3454,18 @@ def _build_residue_annotation(
         "primary_significance": primary_significance,
         "has_pathogenic": max_pathogenicity >= 3,
         "max_pathogenicity": max_pathogenicity,
-        "pathogenic_color": _pathogenicity_color(max_pathogenicity),
+        "pathogenicity_class": pathogenicity_class,
+        "pathogenic_color": _pathogenicity_color(max_pathogenicity, len(records)),
+        "function_classes": sorted(function_class_counts),
+        "function_class_counts": dict(function_class_counts),
         "missense": missense_prediction,
         "alphafold_confidence": confidence_prediction,
-        "variants": [_variant_summary(record) for record in records],
+        "variants": variant_summaries,
     }
 
 
-def _variant_summary(record: dict[str, Any]) -> dict[str, Any]:
+def _variant_summary(record: dict[str, Any], experimental_function: dict[str, Any]) -> dict[str, Any]:
+    function_entry = _experimental_function_for_record(record, experimental_function)
     return {
         "variation_id": record.get("variation_id"),
         "accession": record.get("accession"),
@@ -2663,7 +3475,241 @@ def _variant_summary(record: dict[str, Any]) -> dict[str, Any]:
         "significance": record.get("significance"),
         "phenotype_names": record.get("phenotype_names", []),
         "molecular_consequences": record.get("molecular_consequences", []),
+        "function_classes": function_entry.get("function_classes", []),
+        "function_calls": function_entry.get("function_calls", []),
     }
+
+
+def _experimental_function_for_record(record: dict[str, Any], experimental_function: dict[str, Any]) -> dict[str, Any]:
+    by_variant = experimental_function["by_variant"]
+    for key in _record_variant_lookup_keys(record):
+        if key in by_variant:
+            return by_variant[key]
+    return {}
+
+
+def _record_variant_lookup_keys(record: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    protein_change = _normalize_variant_name(record.get("protein_change"))
+    if protein_change:
+        keys.append(protein_change)
+    residue = _coerce_residue(record.get("residue"))
+    amino_acid = str(record.get("amino_acid") or "").strip()
+    alternate_amino_acid = str(record.get("alternate_amino_acid") or "").strip()
+    if residue is not None and amino_acid and alternate_amino_acid:
+        keys.append(_normalize_variant_name(f"{amino_acid}{residue}{alternate_amino_acid}"))
+    return keys
+
+
+def _exp_variance_patient_data_path(gene: str) -> Path:
+    normalized_gene = normalize_gene(gene)
+    return Path("data") / "exp_variance" / normalized_gene / f"{normalized_gene}_patient_data.csv"
+
+
+def _scn1a_bosselman_path() -> Path:
+    return Path("data") / "functional_variants" / "SCN1A" / "bosselman.csv"
+
+
+def _scn1a_gof_ndeema_path() -> Path:
+    return Path("data") / "patient_variants" / "SCN1A" / "gof_ndeema.csv"
+
+
+def _scn1a_brunklaus_path() -> Path:
+    return Path("data") / "patient_variants" / "SCN1A" / "dravet_gefs_brunklaus.csv"
+
+
+def _experimental_function_source_paths(gene: str) -> list[Path]:
+    normalized_gene = normalize_gene(gene)
+    paths = []
+    exp_variance_path = _exp_variance_patient_data_path(normalized_gene)
+    if exp_variance_path.exists():
+        paths.append(exp_variance_path)
+    if normalized_gene == "SCN1A":
+        for path in [_scn1a_bosselman_path(), _scn1a_gof_ndeema_path(), _scn1a_brunklaus_path()]:
+            if path.exists():
+                paths.append(path)
+    return paths
+
+
+def _load_experimental_function_data(gene: str) -> dict[str, Any]:
+    normalized_gene = normalize_gene(gene)
+    source_paths = _experimental_function_source_paths(normalized_gene)
+    if not source_paths:
+        return {
+            "source": "none",
+            "path": str(_exp_variance_patient_data_path(normalized_gene)),
+            "paths": [],
+            "patient_row_count": 0,
+            "variant_count": 0,
+            "residue_count": 0,
+            "class_counts": {},
+            "source_counts": {},
+            "by_variant": {},
+            "by_residue": {},
+        }
+
+    by_variant: dict[str, dict[str, Any]] = {}
+    by_residue: dict[str, dict[str, Any]] = {}
+    class_counts: Counter[str] = Counter()
+    source_counts: Counter[str] = Counter()
+    patient_row_count = 0
+
+    def add_call(
+        *,
+        variant: Any,
+        function_call: Any,
+        source_label: str,
+        residue: Any = None,
+    ) -> bool:
+        variant_key = _normalize_variant_name(variant)
+        function_classes = _function_classes_from_call(function_call)
+        if not variant_key or not function_classes:
+            return False
+        resolved_residue = _coerce_residue(residue)
+        if resolved_residue is None:
+            resolved_residue = _residue_from_variant_name(variant_key)
+        call_label = str(function_call or "").strip()
+        if source_label:
+            call_label = f"{call_label} [{source_label}]" if call_label else source_label
+        entry = by_variant.setdefault(
+            variant_key,
+            {"function_classes": set(), "function_calls": set(), "patient_count": 0},
+        )
+        entry["function_classes"].update(function_classes)
+        if call_label:
+            entry["function_calls"].add(call_label)
+        entry["patient_count"] += 1
+        source_counts[source_label or "unknown"] += 1
+        for function_class in function_classes:
+            class_counts[function_class] += 1
+        if resolved_residue is not None:
+            residue_entry = by_residue.setdefault(
+                str(resolved_residue),
+                {
+                    "function_classes": set(),
+                    "function_calls": set(),
+                    "variant_keys": set(),
+                    "function_class_counts": Counter(),
+                },
+            )
+            residue_entry["function_classes"].update(function_classes)
+            residue_entry["variant_keys"].add(variant_key)
+            if call_label:
+                residue_entry["function_calls"].add(call_label)
+            for function_class in function_classes:
+                residue_entry["function_class_counts"][function_class] += 1
+        return True
+
+    exp_variance_path = _exp_variance_patient_data_path(normalized_gene)
+    if exp_variance_path.exists():
+        with exp_variance_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                patient_row_count += 1
+                add_call(
+                    variant=row.get("variant"),
+                    function_call=row.get("function_call"),
+                    source_label="exp_variance_patient_data",
+                )
+
+    if normalized_gene == "SCN1A":
+        bosselman_path = _scn1a_bosselman_path()
+        if bosselman_path.exists():
+            with bosselman_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    patient_row_count += 1
+                    add_call(
+                        variant=row.get("protein_change"),
+                        function_call=row.get("function_call"),
+                        source_label="bosselman_functional",
+                    )
+
+        gof_path = _scn1a_gof_ndeema_path()
+        if gof_path.exists():
+            with gof_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    patient_row_count += 1
+                    add_call(
+                        variant=row.get("variant"),
+                        function_call=row.get("function_call"),
+                        source_label="gof_ndeema",
+                    )
+
+        brunklaus_path = _scn1a_brunklaus_path()
+        if brunklaus_path.exists():
+            with brunklaus_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    patient_row_count += 1
+                    dx = str(row.get("dx") or "").strip()
+                    if dx not in {"Dravet", "GEFS+"}:
+                        continue
+                    add_call(
+                        variant=row.get("protein_change"),
+                        residue=row.get("residue_canonical") or row.get("residue"),
+                        function_call=f"{dx} inferred LOF",
+                        source_label="brunklaus_dravet_gefs",
+                    )
+
+    return {
+        "source": "combined_experimental_function_data",
+        "path": str(source_paths[0]) if len(source_paths) == 1 else [str(path) for path in source_paths],
+        "paths": [str(path) for path in source_paths],
+        "patient_row_count": patient_row_count,
+        "variant_count": len(by_variant),
+        "residue_count": len(by_residue),
+        "class_counts": dict(class_counts),
+        "source_counts": dict(source_counts),
+        "by_variant": {
+            key: {
+                "function_classes": sorted(value["function_classes"]),
+                "function_calls": sorted(value["function_calls"]),
+                "patient_count": value["patient_count"],
+            }
+            for key, value in by_variant.items()
+        },
+        "by_residue": {
+            key: {
+                "function_classes": sorted(value["function_classes"]),
+                "function_calls": sorted(value["function_calls"]),
+                "function_class_counts": dict(value["function_class_counts"]),
+                "variant_keys": sorted(value["variant_keys"]),
+            }
+            for key, value in by_residue.items()
+        },
+    }
+
+
+def _function_classes_from_call(function_call: Any) -> list[str]:
+    normalized = str(function_call or "").strip().lower()
+    classes: list[str] = []
+    if "gof" in normalized or "gain" in normalized:
+        classes.append("gain-of-function")
+    if "lof" in normalized or "loss" in normalized:
+        classes.append("loss-of-function")
+    return classes
+
+
+def _normalize_variant_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    text = re.sub(r"^p\.", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[^A-Za-z0-9=*]+", "", text)
+    return text.upper() or None
+
+
+def _residue_from_variant_name(variant_name: str | None) -> int | None:
+    if not variant_name:
+        return None
+    match = re.search(r"(\d+)", variant_name)
+    if not match:
+        return None
+    return int(match.group(1))
 
 
 def _choose_primary_phenotype(records: list[dict[str, Any]]) -> str | None:
@@ -2712,7 +3758,21 @@ def _significance_severity(significance: str | None) -> int:
     return 0
 
 
-def _pathogenicity_color(severity: int) -> str:
+def _pathogenicity_class(severity: int, variant_count: int) -> str | None:
+    if variant_count <= 0:
+        return None
+    if severity >= 4:
+        return "pathogenic"
+    if severity == 3:
+        return "likely-pathogenic"
+    if severity == 2:
+        return "uncertain"
+    return "benign"
+
+
+def _pathogenicity_color(severity: int, variant_count: int) -> str:
+    if variant_count <= 0:
+        return "#d9d9d9"
     if severity >= 4:
         return "#b2182b"
     if severity == 3:
