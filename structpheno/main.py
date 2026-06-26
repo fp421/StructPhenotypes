@@ -139,16 +139,36 @@ def _get_clinvar_data(gene: str, logger: logging.Logger | None = None) -> dict[s
     """Load cached ClinVar data or fetch and cache it."""
     logger = logger or logging.getLogger(__name__)
     path = clinvar_json_path(gene)
+    retriever = ClinVarRetriever(gene)
     if path.exists():
-        logger.info("Using cached ClinVar data from %s", path)
-        return json.loads(path.read_text(encoding="utf-8"))
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        if _clinvar_cache_matches_retriever(cached, retriever):
+            logger.info("Using cached ClinVar data from %s", path)
+            return cached
+        logger.info(
+            "ClinVar cache at %s was made with an older or different query; fetching fresh data",
+            path,
+        )
 
     logger.info("ClinVar cache miss for %s; fetching from ClinVar", gene)
-    retriever = ClinVarRetriever(gene)
     records = retriever.get_clinvar_data()
     retriever.save_clinvar_data(path, data=records)
     logger.info("Saved ClinVar data to %s", path)
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _clinvar_cache_matches_retriever(
+    payload: dict[str, Any],
+    retriever: ClinVarRetriever,
+) -> bool:
+    """Return whether cached ClinVar data was fetched with the current query."""
+    query = payload.get("query")
+    if isinstance(query, dict):
+        return query.get("term") == retriever.query_metadata()["term"]
+
+    # Legacy SCN1A caches were created with ``single_gene[prop]``, which excludes
+    # valid C-terminal variants overlapping LOC102724058.
+    return retriever.gene != "SCN1A"
 
 
 def _get_alpha_missense_data(gene: str, logger: logging.Logger | None = None) -> Any:
