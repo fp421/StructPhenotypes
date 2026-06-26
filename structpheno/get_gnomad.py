@@ -7,7 +7,33 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional, List
 import json
+import re
 import sys
+
+
+THREE_TO_ONE_AA = {
+    "Ala": "A", "Arg": "R", "Asn": "N", "Asp": "D", "Cys": "C", "Gln": "Q",
+    "Glu": "E", "Gly": "G", "His": "H", "Ile": "I", "Leu": "L", "Lys": "K",
+    "Met": "M", "Phe": "F", "Pro": "P", "Ser": "S", "Thr": "T", "Trp": "W",
+    "Tyr": "Y", "Val": "V", "Ter": "*",
+}
+
+_HGVSP_RE = re.compile(r"p\.([A-Za-z]{3})(\d+)([A-Za-z]{3})")
+
+
+def parse_hgvsp(hgvsp):
+    """Parse a missense HGVS protein string (e.g. 'p.Gly2008Trp').
+
+    Returns (residue, ref_aa, alt_aa) as (int, 1-letter, 1-letter), or
+    (None, None, None) for non-missense / unparseable strings.
+    """
+    if not hgvsp:
+        return None, None, None
+    m = _HGVSP_RE.fullmatch(hgvsp.strip())
+    if not m:
+        return None, None, None
+    ref3, pos, alt3 = m.group(1), int(m.group(2)), m.group(3)
+    return pos, THREE_TO_ONE_AA.get(ref3), THREE_TO_ONE_AA.get(alt3)
 
 
 def query_gnomad_api(gene_symbol: str) -> dict:
@@ -21,30 +47,28 @@ def query_gnomad_api(gene_symbol: str) -> dict:
     """
     url = "https://gnomad.broadinstitute.org/api"
 
+    # gnomAD's current API requires reference_genome on gene() and a dataset on
+    # variants(), which now returns a flat list (no edges/node wrapper).
     query = """
     {
-        gene(gene_symbol: "%s") {
+        gene(gene_symbol: "%s", reference_genome: GRCh38) {
             symbol
-            variants(first: 10000) {
-                edges {
-                    node {
-                        variant_id
-                        chrom
-                        pos
-                        ref
-                        alt
-                        allele_type
-                        exome {
-                            ac
-                            an
-                            af
-                        }
-                        genome {
-                            ac
-                            an
-                            af
-                        }
-                    }
+            variants(dataset: gnomad_r4) {
+                variant_id
+                pos
+                ref
+                alt
+                consequence
+                hgvsp
+                exome {
+                    ac
+                    an
+                    af
+                }
+                genome {
+                    ac
+                    an
+                    af
                 }
             }
         }
@@ -81,29 +105,34 @@ def parse_gnomad_variants(data: dict) -> List[dict]:
         return variants
 
     try:
-        gene = data.get("data", {}).get("gene", {})
+        gene = data.get("data", {}).get("gene") or {}
         if not gene:
             return variants
 
-        for edge in gene.get("variants", {}).get("edges", []):
-            variant = edge.get("node", {})
+        # Current API returns a flat list; older code expected edges/node.
+        for variant in gene.get("variants", []):
+            exome = variant.get("exome") or {}
+            genome = variant.get("genome") or {}
+            # Combine exome + genome to get total allele count / number.
+            ac = (exome.get("ac") or 0) + (genome.get("ac") or 0)
+            an = (exome.get("an") or 0) + (genome.get("an") or 0)
+            af = ac / an if an else None
 
-            exome_af = variant.get("exome", {}).get("af")
-            genome_af = variant.get("genome", {}).get("af")
-            af = exome_af if exome_af is not None else genome_af
-
-            if af is not None:
-                variants.append({
-                    "variant_id": variant.get("variant_id"),
-                    "chrom": variant.get("chrom"),
-                    "pos": variant.get("pos"),
-                    "ref": variant.get("ref"),
-                    "alt": variant.get("alt"),
-                    "allele_type": variant.get("allele_type"),
-                    "allele_freq": af,
-                    "exome_af": exome_af,
-                    "genome_af": genome_af,
-                })
+            residue, ref_aa, alt_aa = parse_hgvsp(variant.get("hgvsp"))
+            variants.append({
+                "variant_id": variant.get("variant_id"),
+                "pos": variant.get("pos"),
+                "ref": variant.get("ref"),
+                "alt": variant.get("alt"),
+                "consequence": variant.get("consequence"),
+                "hgvsp": variant.get("hgvsp"),
+                "residue": residue,
+                "ref_aa": ref_aa,
+                "alt_aa": alt_aa,
+                "allele_count": ac,
+                "allele_number": an,
+                "allele_freq": af,
+            })
 
     except Exception as e:
         print(f"Error parsing variants: {e}", file=sys.stderr)

@@ -339,16 +339,11 @@ class ClinVarRetriever:
             "residue": None,
         }
 
-        one_letter_match = re.search(
-            r"(?P<ref>[A-Z*])(?P<pos>\d+)(?P<alt>[A-Z*]|fs|del|dup|ins|=)?",
-            protein_change,
-        )
-        if one_letter_match:
-            parsed["reference_amino_acid"] = one_letter_match.group("ref")
-            parsed["alternate_amino_acid"] = one_letter_match.group("alt")
-            parsed["residue"] = int(one_letter_match.group("pos"))
-            return parsed
-
+        # Prefer the title's HGVS.p, which uses ClinVar's representative
+        # transcript and matches the canonical protein numbering. The
+        # protein_change field can list several isoform-specific changes
+        # (e.g. "W118R, W903R, ..., W932R"); a plain search there would grab
+        # the first (118) rather than the canonical one (932).
         three_letter_match = re.search(
             r"p\.\(?(?P<ref>[A-Z][a-z]{2})(?P<pos>\d+)(?P<alt>[A-Z][a-z]{2}|Ter|fs|del|dup|ins|=)?\)?",
             title,
@@ -358,6 +353,17 @@ class ClinVarRetriever:
             alt = three_letter_match.group("alt")
             parsed["alternate_amino_acid"] = THREE_TO_ONE_AA.get(alt, alt) if alt else None
             parsed["residue"] = int(three_letter_match.group("pos"))
+            return parsed
+
+        # Fall back to protein_change only when the title lacks an HGVS.p.
+        one_letter_match = re.search(
+            r"(?P<ref>[A-Z*])(?P<pos>\d+)(?P<alt>[A-Z*]|fs|del|dup|ins|=)?",
+            protein_change,
+        )
+        if one_letter_match:
+            parsed["reference_amino_acid"] = one_letter_match.group("ref")
+            parsed["alternate_amino_acid"] = one_letter_match.group("alt")
+            parsed["residue"] = int(one_letter_match.group("pos"))
 
         return parsed
 
